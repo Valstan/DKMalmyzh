@@ -23,7 +23,7 @@ gh pr list --state open
 ## Шаг 2. Незакоммиченная работа → через PR-flow (НЕ в `main` напрямую)
 
 Если `git status` непустой:
-1. **Гейты** (если трогался код): `corepack pnpm lint && corepack pnpm typecheck && corepack pnpm build` (build требует Postgres — Payload на пререндере).
+1. **Гейты** (если трогался код): локально `corepack pnpm lint && corepack pnpm typecheck`; `build` гоняет CI на GitHub Actions (`.github/workflows/ci.yml`) на PR — дожидаемся зелёного, локальный Postgres не нужен.
 2. Ветка `feat/ fix/ chore/ docs/` → коммит → `git push -u origin <ветка>` → `gh pr create` → CI зелёный → `gh pr merge --squash --delete-branch`.
    - ⚠️ Мерж в `main` с изменением **кода** авто-деплоит на прод (`deploy-prod.yml`, Бокс 1). Доки/`.md`/`.claude`/`.github` — `paths-ignore`, деплой не триггерят.
    - Миграции схемы — вручную ДО деплоя через `apply-migration.yml` (dispatch, guard #017).

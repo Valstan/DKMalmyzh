@@ -9,7 +9,7 @@ name: Deploy to production
 #   secrets.PAYLOAD_SECRET         — секрет Payload (на рантайме читается из /etc/dkmalmyzh/dkmalmyzh.env)
 #   vars.DEPLOY_SSH_HOST           — хост прод-сервера
 #   vars.DEPLOY_SSH_PORT           — внешний SSH-порт
-#   vars.NEXT_PUBLIC_SERVER_URL    — боевой домен (punycode дкмалмыж.рф; бейкается в бандл при сборке)
+#   vars.NEXT_PUBLIC_SERVER_URL    — боевой домен (punycode домкультуры.вмалмыже.рф; бейкается в бандл при сборке)
 
 on:
   push:
@@ -189,6 +189,50 @@ jobs:
           # /admin без сессии отдаёт экран входа (200) или редирект — главное, не 5xx/000.
           check "/admin" "200 302 307 308"
           exit $fail
+          REMOTE
+
+      # Публикация наружу: vhost домкультуры.вмалмыже.рф → :3005. Идемпотентно —
+      # ставим только при отличии от того, что уже лежит на боксе.
+      - name: Install/refresh nginx vhost
+        run: |
+          set -e
+          scp -q deploy/nginx-dkmalmyzh.conf dkmalmyzh:/tmp/nginx-dkmalmyzh.conf
+          ssh dkmalmyzh 'bash -s' <<'REMOTE'
+          set -e
+          mkdir -p /home/valstan/dkmalmyzh/acme
+          if [ -d /etc/nginx/sites-available ]; then
+            DEST=/etc/nginx/sites-available/dkmalmyzh.conf
+            ENABLE=/etc/nginx/sites-enabled/dkmalmyzh.conf
+          else
+            DEST=/etc/nginx/conf.d/dkmalmyzh.conf
+            ENABLE=
+          fi
+          if sudo cmp -s /tmp/nginx-dkmalmyzh.conf "$DEST" 2>/dev/null; then
+            echo "vhost без изменений"
+          else
+            sudo cp /tmp/nginx-dkmalmyzh.conf "$DEST"
+            if [ -n "$ENABLE" ]; then sudo ln -sfn "$DEST" "$ENABLE"; fi
+            sudo nginx -t
+            sudo systemctl reload nginx
+            echo "vhost обновлён, nginx перечитан"
+          fi
+          rm -f /tmp/nginx-dkmalmyzh.conf
+          REMOTE
+
+      # Проверяем не только сервис, но и путь через nginx под боевым Host.
+      # XFP=https — иначе vhost честно ответит 301 на https (петля в проверке).
+      - name: Smoke check — через nginx под боевым Host
+        run: |
+          set -e
+          ssh dkmalmyzh 'bash -s' <<'REMOTE'
+          set -e
+          H="Host: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai"
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "$H" -H "X-Forwarded-Proto: https" http://127.0.0.1/)
+          echo "nginx / → $code"
+          [ "$code" = "200" ] || { echo "::error::через nginx ожидался 200"; exit 1; }
+          redirect=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "$H" -H "X-Forwarded-Proto: http" http://127.0.0.1/)
+          echo "XFP=http / → $redirect (ожидается 301)"
+          [ "$redirect" = "301" ] || { echo "::error::нет редиректа http→https"; exit 1; }
           REMOTE
 
       - name: On failure — журналы прода

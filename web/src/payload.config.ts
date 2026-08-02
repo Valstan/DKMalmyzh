@@ -44,7 +44,7 @@ export default buildConfig({
   // Реальные SMTP-доступы живут ТОЛЬКО в /etc/dkmalmyzh/dkmalmyzh.env на проде.
   email: process.env.SMTP_HOST
     ? nodemailerAdapter({
-        defaultFromAddress: process.env.SMTP_FROM_ADDRESS || 'no-reply@xn--80ahhogec4j.xn--p1ai',
+        defaultFromAddress: process.env.SMTP_FROM_ADDRESS || 'no-reply@xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai',
         defaultFromName: process.env.SMTP_FROM_NAME || 'РЦКД г. Малмыж',
         transportOptions: {
           host: process.env.SMTP_HOST,

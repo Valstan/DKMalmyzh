@@ -47,6 +47,16 @@ export function SiteChrome({
         <div className="container">
           {chrome?.contacts ? <p className="site-footer__contacts">{chrome.contacts}</p> : null}
           <p className="site-footer__copyright">{copyright}</p>
+          <p className="site-footer__author">
+            Сделано программистом{' '}
+            <a
+              href="https://xn--80adkmnnb2b.xn--80adkdyec4j.xn--p1ai/"
+              rel="author noopener"
+              target="_blank"
+            >
+              Валентином Савиных
+            </a>
+          </p>
         </div>
       </footer>
     </div>
