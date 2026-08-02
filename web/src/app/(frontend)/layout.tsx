@@ -16,6 +16,10 @@ export const metadata: Metadata = {
     template: `%s — ${SITE_NAME}`,
   },
   description: SITE_DESC,
+  icons: {
+    icon: '/icon.png',
+    apple: '/apple-icon.png',
+  },
   alternates: { canonical: '/' },
   openGraph: {
     title: SITE_NAME,
