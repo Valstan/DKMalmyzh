@@ -1,0 +1,64 @@
+name: Probe nginx (manual, read-only)
+
+# Диагностика публикации домена: какой server-блок реально отвечает на боевой Host.
+# Ничего не меняет — только читает. Запускается вручную.
+#
+# Зачем: сайт живёт на боксе не один (рядом гоньба.рф, вмалмыже.рф). Проверка
+# «curl -H Host … → 200» ничего не доказывает: 200 отдаст и соседний сайт, если
+# наш server-блок не загружен. Здесь смотрим `nginx -T` и контент-маркер.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: probe-nginx
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ vars.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+        run: |
+          set -e
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_dkmalmyzh
+          chmod 600 ~/.ssh/id_ed25519_dkmalmyzh
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          cat > ~/.ssh/config <<CFG
+          Host dkmalmyzh
+            HostName $DEPLOY_SSH_HOST
+            Port $DEPLOY_SSH_PORT
+            User valstan
+            IdentityFile ~/.ssh/id_ed25519_dkmalmyzh
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Что nginx реально загрузил
+        run: |
+          ssh dkmalmyzh 'bash -s' <<'REMOTE'
+          set +e
+          echo "── файл vhost на диске:"
+          ls -l /etc/nginx/sites-available/dkmalmyzh.conf /etc/nginx/sites-enabled/dkmalmyzh.conf /etc/nginx/conf.d/dkmalmyzh.conf 2>&1
+          echo
+          echo "── include-директивы в nginx.conf:"
+          grep -n "include" /etc/nginx/nginx.conf
+          echo
+          echo "── все server_name в загруженной конфигурации (nginx -T):"
+          sudo nginx -T 2>/dev/null | grep -nE "^\s*(server_name|listen|# configuration file)" | sed 's/^ *//'
+          echo
+          echo "── кто отвечает на наш Host (маркер контента):"
+          H="Host: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai"
+          curl -s --max-time 15 -H "$H" -H "X-Forwarded-Proto: https" http://127.0.0.1/ | grep -oiE "<title>[^<]*</title>" | head -1
+          echo "── а что отдаёт наш сервис напрямую (:3005):"
+          curl -s --max-time 15 http://127.0.0.1:3005/ | grep -oiE "<title>[^<]*</title>" | head -1
+          REMOTE
