@@ -193,13 +193,26 @@ jobs:
 
       # Публикация наружу: vhost домкультуры.вмалмыже.рф → :3005. Идемпотентно —
       # ставим только при отличии от того, что уже лежит на боксе.
+      # Версию выбираем по факту: есть LE-сертификат домена → TLS-конфиг, нет →
+      # бутстрап на :80 (редирект на https без сертификата увёл бы посетителей
+      # на 443 default_server соседнего сайта).
       - name: Install/refresh nginx vhost
         run: |
           set -e
-          scp -q deploy/nginx-dkmalmyzh.conf dkmalmyzh:/tmp/nginx-dkmalmyzh.conf
+          scp -q deploy/nginx-dkmalmyzh.conf dkmalmyzh:/tmp/nginx-dkmalmyzh-http.conf
+          scp -q deploy/nginx-dkmalmyzh-tls.conf dkmalmyzh:/tmp/nginx-dkmalmyzh-tls.conf
           ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -e
+          DOMAIN=xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai
           mkdir -p /home/valstan/dkmalmyzh/acme
+          if sudo test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"; then
+            SRC=/tmp/nginx-dkmalmyzh-tls.conf
+            echo "сертификат найден → ставим TLS-версию vhost"
+          else
+            SRC=/tmp/nginx-dkmalmyzh-http.conf
+            echo "сертификата ещё нет → ставим бутстрап-версию (:80). Выпуск: workflow setup-tls.yml"
+          fi
+          cp "$SRC" /tmp/nginx-dkmalmyzh.conf
           if [ -d /etc/nginx/sites-available ]; then
             DEST=/etc/nginx/sites-available/dkmalmyzh.conf
             ENABLE=/etc/nginx/sites-enabled/dkmalmyzh.conf
@@ -216,23 +229,35 @@ jobs:
             sudo systemctl reload nginx
             echo "vhost обновлён, nginx перечитан"
           fi
-          rm -f /tmp/nginx-dkmalmyzh.conf
+          rm -f /tmp/nginx-dkmalmyzh.conf /tmp/nginx-dkmalmyzh-http.conf /tmp/nginx-dkmalmyzh-tls.conf
           REMOTE
 
-      # Проверяем не только сервис, но и путь через nginx под боевым Host.
-      # XFP=https — иначе vhost честно ответит 301 на https (петля в проверке).
+      # Проверяем путь через nginx под боевым Host. Голый код 200 ничего не
+      # доказывает: бокс делят несколько сайтов, и 200 отдал бы сосед. Поэтому
+      # обязателен контент-маркер нашей главной.
       - name: Smoke check — через nginx под боевым Host
         run: |
           set -e
           ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -e
-          H="Host: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai"
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "$H" -H "X-Forwarded-Proto: https" http://127.0.0.1/)
-          echo "nginx / → $code"
+          DOMAIN=xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai
+          H="Host: $DOMAIN"
+          if sudo test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"; then
+            URL="https://127.0.0.1/"; EXTRA="--resolve $DOMAIN:443:127.0.0.1"; URL="https://$DOMAIN/"
+          else
+            URL="http://127.0.0.1/"; EXTRA=""
+          fi
+          code=$(curl -sk $EXTRA -o /tmp/smoke.html -w '%{http_code}' --max-time 15 -H "$H" "$URL")
+          echo "nginx $URL → $code"
           [ "$code" = "200" ] || { echo "::error::через nginx ожидался 200"; exit 1; }
-          redirect=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "$H" -H "X-Forwarded-Proto: http" http://127.0.0.1/)
-          echo "XFP=http / → $redirect (ожидается 301)"
-          [ "$redirect" = "301" ] || { echo "::error::нет редиректа http→https"; exit 1; }
+          if grep -q "РЦКД" /tmp/smoke.html; then
+            echo "content marker OK: «РЦКД» на главной"
+          else
+            echo "::error::контент-маркер не найден — под боевым Host отвечает не наш сайт"
+            grep -oiE "<title>[^<]*</title>" /tmp/smoke.html | head -1 || true
+            exit 1
+          fi
+          rm -f /tmp/smoke.html
           REMOTE
 
       - name: On failure — журналы прода

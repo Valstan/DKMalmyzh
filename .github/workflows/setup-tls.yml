@@ -1,0 +1,126 @@
+name: Setup TLS for домкультуры.вмалмыже.рф (manual)
+
+# Выпускает LE-сертификат для боевого домена и переводит vhost на TLS.
+# Запускается вручную, идемпотентен: повторный запуск при живом сертификате
+# ничего не перевыпускает (certbot сам скажет «not due for renewal»).
+#
+# Предусловия (обеспечивает deploy-prod.yml):
+#   • на боксе стоит бутстрап-vhost :80 с ACME-локацией → /home/valstan/dkmalmyzh/acme;
+#   • DNS домена смотрит на этот бокс.
+#
+# Почему webroot, а не --nginx: конфиг vhost'а перезаписывается деплоем из репо,
+# и правки, которые certbot вносит в файл, были бы затёрты. Webroot трогает только
+# /etc/letsencrypt, а TLS-блок приезжает из deploy/nginx-dkmalmyzh-tls.conf.
+#
+# Требует те же доступы, что deploy-prod.yml:
+#   secrets.SSH_PRIVATE_KEY, vars.DEPLOY_SSH_HOST, vars.DEPLOY_SSH_PORT
+
+on:
+  workflow_dispatch:
+    inputs:
+      retire_old_vhost:
+        description: 'Отключить старый vhost мёртвого домена дкмалмыж.рф (с бэкапом)'
+        required: true
+        default: 'yes'
+        type: choice
+        options: [  'yes', 'no' ]
+
+concurrency:
+  group: prod-nginx
+  cancel-in-progress: false
+
+env:
+  DOMAIN: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai   # домкультуры.вмалмыже.рф
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ vars.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+        run: |
+          set -e
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_PORT" ]; then
+            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / vars.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_dkmalmyzh
+          chmod 600 ~/.ssh/id_ed25519_dkmalmyzh
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          cat > ~/.ssh/config <<CFG
+          Host dkmalmyzh
+            HostName $DEPLOY_SSH_HOST
+            Port $DEPLOY_SSH_PORT
+            User valstan
+            IdentityFile ~/.ssh/id_ed25519_dkmalmyzh
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Выпустить сертификат (certbot --webroot)
+        run: |
+          set -e
+          ssh dkmalmyzh 'bash -s' "$DOMAIN" <<'REMOTE'
+          set -e
+          DOMAIN="$1"
+          mkdir -p /home/valstan/dkmalmyzh/acme
+          # ACME-путь должен отвечать 200 ДО обращения в LE — иначе получим fail
+          # валидации и лишний удар по rate-limit.
+          mkdir -p /home/valstan/dkmalmyzh/acme/.well-known/acme-challenge
+          echo probe-ok > /home/valstan/dkmalmyzh/acme/.well-known/acme-challenge/probe
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: $DOMAIN" http://127.0.0.1/.well-known/acme-challenge/probe)
+          rm -f /home/valstan/dkmalmyzh/acme/.well-known/acme-challenge/probe
+          echo "ACME-путь → $code (ожидается 200)"
+          [ "$code" = "200" ] || { echo "::error::ACME-локация не отдаёт файл — сначала прогони deploy-prod (бутстрап-vhost)"; exit 1; }
+          sudo certbot certonly --webroot -w /home/valstan/dkmalmyzh/acme \
+            -d "$DOMAIN" --non-interactive --agree-tos --keep-until-expiring
+          sudo test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" \
+            || { echo "::error::сертификат не появился"; exit 1; }
+          sudo certbot certificates 2>/dev/null | grep -A3 "$DOMAIN" | head -8 || true
+          REMOTE
+
+      - name: Поставить TLS-vhost
+        run: |
+          set -e
+          scp -q deploy/nginx-dkmalmyzh-tls.conf dkmalmyzh:/tmp/nginx-dkmalmyzh-tls.conf
+          ssh dkmalmyzh 'bash -s' "${{ inputs.retire_old_vhost }}" <<'REMOTE'
+          set -e
+          RETIRE="$1"
+          DEST=/etc/nginx/sites-available/dkmalmyzh.conf
+          sudo cp /tmp/nginx-dkmalmyzh-tls.conf "$DEST"
+          sudo ln -sfn "$DEST" /etc/nginx/sites-enabled/dkmalmyzh.conf
+          rm -f /tmp/nginx-dkmalmyzh-tls.conf
+          # Старый vhost мёртвого домена дкмалмыж.рф — с бэкапом, обратимо.
+          if [ "$RETIRE" = "yes" ] && [ -e /etc/nginx/sites-enabled/dkmalmyzh ]; then
+            mkdir -p /home/valstan/dkmalmyzh/retired
+            sudo cp -L /etc/nginx/sites-enabled/dkmalmyzh /home/valstan/dkmalmyzh/retired/vhost-dkmalmyzh.bak
+            sudo rm -f /etc/nginx/sites-enabled/dkmalmyzh
+            echo "старый vhost дкмалмыж.рф отключён (бэкап: ~/dkmalmyzh/retired/vhost-dkmalmyzh.bak)"
+          fi
+          sudo nginx -t
+          sudo systemctl reload nginx
+          echo "nginx перечитан"
+          REMOTE
+
+      - name: Проверка — по боевому имени отвечает наш сайт
+        run: |
+          set -e
+          ssh dkmalmyzh 'bash -s' "$DOMAIN" <<'REMOTE'
+          set -e
+          DOMAIN="$1"
+          code=$(curl -s --resolve "$DOMAIN:443:127.0.0.1" -o /tmp/tls-smoke.html -w '%{http_code}' --max-time 20 "https://$DOMAIN/")
+          echo "https://$DOMAIN/ → $code"
+          [ "$code" = "200" ] || { echo "::error::ожидался 200"; exit 1; }
+          grep -q "РЦКД" /tmp/tls-smoke.html \
+            || { echo "::error::контент-маркер «РЦКД» не найден — отвечает не наш сайт"; grep -oiE "<title>[^<]*</title>" /tmp/tls-smoke.html | head -1; exit 1; }
+          echo "content marker OK"
+          rm -f /tmp/tls-smoke.html
+          REMOTE
