@@ -5,7 +5,9 @@ name: Setup TLS for домкультуры.вмалмыже.рф (manual)
 # ничего не перевыпускает (certbot сам скажет «not due for renewal»).
 #
 # Предусловия (обеспечивает deploy-prod.yml):
-#   • на боксе стоит бутстрап-vhost :80 с ACME-локацией → /home/valstan/dkmalmyzh/acme;
+#   • на боксе стоит бутстрап-vhost :80 с ACME-локацией → /var/www/dkmalmyzh-acme
+#     (именно /var/www, а не домашний каталог: он закрыт для nginx-воркера — оттуда
+#     челлендж отдавался 404);
 #   • DNS домена смотрит на этот бокс.
 #
 # Почему webroot, а не --nginx: конфиг vhost'а перезаписывается деплоем из репо,
@@ -71,16 +73,17 @@ jobs:
           ssh dkmalmyzh 'bash -s' "$DOMAIN" <<'REMOTE'
           set -e
           DOMAIN="$1"
-          mkdir -p /home/valstan/dkmalmyzh/acme
+          WEBROOT=/var/www/dkmalmyzh-acme
+          sudo mkdir -p "$WEBROOT/.well-known/acme-challenge"
+          sudo chmod 755 /var/www "$WEBROOT" "$WEBROOT/.well-known" "$WEBROOT/.well-known/acme-challenge"
           # ACME-путь должен отвечать 200 ДО обращения в LE — иначе получим fail
           # валидации и лишний удар по rate-limit.
-          mkdir -p /home/valstan/dkmalmyzh/acme/.well-known/acme-challenge
-          echo probe-ok > /home/valstan/dkmalmyzh/acme/.well-known/acme-challenge/probe
+          echo probe-ok | sudo tee "$WEBROOT/.well-known/acme-challenge/probe" >/dev/null
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: $DOMAIN" http://127.0.0.1/.well-known/acme-challenge/probe)
-          rm -f /home/valstan/dkmalmyzh/acme/.well-known/acme-challenge/probe
+          sudo rm -f "$WEBROOT/.well-known/acme-challenge/probe"
           echo "ACME-путь → $code (ожидается 200)"
           [ "$code" = "200" ] || { echo "::error::ACME-локация не отдаёт файл — сначала прогони deploy-prod (бутстрап-vhost)"; exit 1; }
-          sudo certbot certonly --webroot -w /home/valstan/dkmalmyzh/acme \
+          sudo certbot certonly --webroot -w "$WEBROOT" \
             -d "$DOMAIN" --non-interactive --agree-tos --keep-until-expiring
           sudo test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" \
             || { echo "::error::сертификат не появился"; exit 1; }

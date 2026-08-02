@@ -204,7 +204,9 @@ jobs:
           ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -e
           DOMAIN=xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai
-          mkdir -p /home/valstan/dkmalmyzh/acme
+          # Webroot для ACME — в /var/www: домашний каталог пользователя закрыт
+          # для nginx-воркера, оттуда челлендж отдавался 404.
+          sudo mkdir -p /var/www/dkmalmyzh-acme && sudo chmod 755 /var/www/dkmalmyzh-acme
           if sudo test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"; then
             SRC=/tmp/nginx-dkmalmyzh-tls.conf
             echo "сертификат найден → ставим TLS-версию vhost"
