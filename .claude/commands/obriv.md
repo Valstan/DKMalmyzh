@@ -41,7 +41,7 @@ node -e "const fs=require('fs');const f=process.argv[1];const b=fs.readFileSync(
 
 ## 5. Если трогался код — перепроверь гейты проекта
 
-Для сайтов на Payload/Next: `corepack pnpm lint && corepack pnpm typecheck && corepack pnpm build` (⚠️ `build` требует локальный Postgres — Payload читает БД на пререндере, образец `.env.example`). Для проектов без сборки (репо-скелет / статика) — пропусти.
+Для сайтов на Payload/Next: локально `corepack pnpm lint && corepack pnpm typecheck`; `build` — на GitHub Actions (`.github/workflows/ci.yml`, эфемерный Postgres). Проверь `gh run list --limit 3`. Для проектов без сборки (репо-скелет / статика) — пропусти.
 
 ## 6. Доложи и продолжи
 

@@ -1,0 +1,75 @@
+name: CI
+
+# Гейты проекта (lint + typecheck + build) гоняются здесь, на раннере GitHub, а не
+# на машине разработчика: `pnpm build` требует живой Postgres (Payload читает БД на
+# пререндере), и держать его локально ради каждого PR не нужно — тут БД эфемерная.
+# Сборка прод-артефакта живёт отдельно, в deploy-prod.yml.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dkmalmyzh_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: web
+
+    env:
+      # Эфемерная БД CI: push:true создаёт схему, пререндер отдаёт пустые страницы.
+      DATABASE_URI: postgresql://postgres:postgres@localhost:5432/dkmalmyzh_ci
+      PAYLOAD_SECRET: ci-build-only-secret-not-used-at-runtime
+      NEXT_PUBLIC_SERVER_URL: http://127.0.0.1:3005
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Enable corepack + pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate importmap + types
+        run: |
+          pnpm generate:importmap
+          pnpm generate:types
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
