@@ -17,6 +17,11 @@ EnvironmentFile=/etc/dkmalmyzh/dkmalmyzh.env
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 RestartSec=3
+# Graceful drain при restart/stop. Next standalone сам вешает обработчик SIGTERM
+# (start-server.js: server.close() → nextServer.close() → exit 0), пока не задан
+# NEXT_MANUAL_SIG_HANDLE — поэтому запросы в полёте дорабатывают. Ограничиваем
+# ожидание: дальше systemd шлёт SIGKILL, иначе висящий запрос держит рестарт.
+TimeoutStopSec=30
 # Память: на малом боксе ограничиваем рантайм, чтобы не уронить postgres.
 MemoryMax=1024M
 # Лёгкая защита
