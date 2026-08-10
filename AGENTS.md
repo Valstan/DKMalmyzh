@@ -14,18 +14,18 @@
 - Карточка проекта: [`../brain_matrica/projects/DKMalmyzh.md`](../brain_matrica/projects/DKMalmyzh.md). Концепт малмыж-кластера: [`../brain_matrica/docs/plans/malmyzh-sites-rebuild-concept.md`](../brain_matrica/docs/plans/malmyzh-sites-rebuild-concept.md).
 - Локальная память последней сессии: [`docs/SESSION_HANDOFF.md`](docs/SESSION_HANDOFF.md).
 
-`brain_matrica` разрешено только **читать**. Никогда не изменяй и не коммить файлы в `../brain_matrica/`. Предложения Мозгу оформляй в `mailbox/to-brain/*.md` этого репозитория.
+`brain_matrica` разрешено только **читать**. ❌ Никогда не изменяй, не коммить и **не синхронизируй** (`fetch`/`pull`/`checkout` и любые иные изменяющие команды) `../brain_matrica/` и другие соседние репозитории: Мозг или другой агент может прямо сейчас работать в этой локальной копии, в том числе иметь ещё не запушенную почту. Предложения Мозгу оформляй в `mailbox/to-brain/*.md` этого репозитория.
 
 ## Начало и завершение работы
 
 В начале работы:
 
-1. Сначала синхронизируй **этот** репозиторий (`git fetch`, затем безопасный fast-forward).
-2. Синхронизируй `../brain_matrica` только fast-forward и только при чистом дереве.
-3. Прочитай входящие `../brain_matrica/mailboxes/DKMalmyzh/from-brain/*.md` (см. §Mailbox).
+1. Синхронизируй **только этот** репозиторий (`git fetch`, затем безопасный fast-forward при чистом дереве).
+2. Не выполняй никаких синхронизирующих или изменяющих Git-команд в `../brain_matrica/` и других соседних репозиториях.
+3. Прочитай входящие письма из **двух read-only источников** (см. §Mailbox).
 4. Прочитай `docs/SESSION_HANDOFF.md` и проверь `git status` / последние коммиты.
 
-В конце значимой работы обнови `docs/SESSION_HANDOFF.md`, сохрани изменения через PR и оставь оба репозитория синхронизированными и чистыми.
+В конце значимой работы обнови `docs/SESSION_HANDOFF.md`, сохрани изменения через PR, оставь **свой** репозиторий синхронизированным и чистым, а чужие локальные репозитории — нетронутыми.
 
 Исполняемые памятки лежат в `.claude/commands/`: [`start.md`](.claude/commands/start.md), [`close_session.md`](.claude/commands/close_session.md), [`obriv.md`](.claude/commands/obriv.md). Несмотря на имя каталога, их workflow применим **любому** агенту. Правило чтения памяток агентом без соответствующего инструмента: `allowed-tools:` игнорировать; `/команда` = «выполни шаги файла»; указание вида `AskUserQuestion: «…»` = «задай вопрос и дождись явного ответа»; **форма любая, шаг обязателен**.
 
@@ -35,10 +35,16 @@
 
 | Направление | Кто пишет | Где |
 |---|---|---|
-| `brain → ДК Малмыж` | brain | `../brain_matrica/mailboxes/DKMalmyzh/from-brain/*.md` (мы только **читаем** после `git pull --ff-only`) |
+| `brain → ДК Малмыж` | brain | `mailboxes/DKMalmyzh/from-brain/*.md` в репо `brain_matrica` (мы только **читаем**, без синхронизации) |
 | `ДК Малмыж → brain` | мы | **`mailbox/to-brain/*.md`** в этом репо (через PR) |
 
-Сканить только корень `from-brain/` (не `DRAFTS/`, не `ARCHIVE/`). Compliance: `mandate`→MUST, `recommend`→SHOULD (отказ обосновать письмом), `suggest`→MAY. Письма без `compliance`: `directive`→MUST, `idea`→SHOULD.
+Сканить только корень `from-brain/` (не `DRAFTS/`, не `ARCHIVE/`) **в двух read-only источниках**: в локальной копии `../brain_matrica/` и на GitHub (`main` репозитория `brain_matrica`, через API/веб **без clone/fetch/pull**). Набор писем — объединение источников по относительному пути.
+
+Если письмо есть в обоих источниках и содержимое различается, свежесть определяется по истории **именно этого файла**, а не репозитория: незакоммиченная локальная версия — более свежий кандидат; иначе сравнить последний локальный коммит файла с последним коммитом этого пути на GitHub. Порядок надёжно не определяется — прочитать обе версии и явно доложить конфликт; ничего не перезаписывать и не синхронизировать. Свежесть одного репозитория или письма **не переносится** на другие.
+
+Compliance: `mandate`→MUST, `recommend`→SHOULD (отказ обосновать письмом), `suggest`→MAY. Письма без `compliance`: `directive`→MUST, `idea`→SHOULD.
+
+В `ref:` ответного письма — **full-slug письма, на которое отвечаешь** (с датой, без `.md`), например `2026-08-04-start-mailbox-readonly-sources`. Номер идеи или тема на этом месте не работают: счётчик открытых директив у Мозга сопоставляет ответ с оригиналом ровно по этой строке.
 
 Формат исходящего письма `mailbox/to-brain/YYYY-MM-DD-slug.md`:
 
@@ -51,6 +57,8 @@ topic: ...
 kind: idea | question | feedback | report
 compliance: suggest | recommend | mandate   # для kind=idea
 urgency: low | normal | high
+ref:                                        # если это ответ на письмо
+  - YYYY-MM-DD-slug-письма-Мозга
 ---
 ```
 
