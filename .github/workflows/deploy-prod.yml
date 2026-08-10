@@ -10,6 +10,8 @@ name: Deploy to production
 #   vars.DEPLOY_SSH_HOST           — хост прод-сервера
 #   vars.DEPLOY_SSH_PORT           — внешний SSH-порт
 #   vars.NEXT_PUBLIC_SERVER_URL    — боевой домен (punycode домкультуры.вмалмыже.рф; бейкается в бандл при сборке)
+#   vars.NEXT_PUBLIC_YANDEX_METRICA_ID — номер счётчика Метрики (D-017); пусто → тег не рендерится
+#   vars.NEXT_PUBLIC_METRIKA_INFORMER  — '1' → видимый информер в подвале (только после включения настройки в кабинете)
 
 on:
   push:
@@ -97,6 +99,10 @@ jobs:
           DATABASE_URI: postgresql://postgres:postgres@localhost:5432/dkmalmyzh_build
           PAYLOAD_SECRET: ci-build-only-secret-not-used-at-runtime
           NEXT_PUBLIC_SERVER_URL: ${{ vars.NEXT_PUBLIC_SERVER_URL || 'http://127.0.0.1:3005' }}
+          # Аналитика (D-017). Пусто → тег Метрики и информер не рендерятся;
+          # NEXT_PUBLIC_* бейкаются здесь, в бандл, а не читаются в рантайме.
+          NEXT_PUBLIC_YANDEX_METRICA_ID: ${{ vars.NEXT_PUBLIC_YANDEX_METRICA_ID }}
+          NEXT_PUBLIC_METRIKA_INFORMER: ${{ vars.NEXT_PUBLIC_METRIKA_INFORMER }}
           # Включает output:'standalone' (next.config.js).
           STANDALONE_BUILD: '1'
         run: pnpm build

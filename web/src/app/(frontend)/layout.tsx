@@ -6,6 +6,7 @@ import React from 'react'
 import './globals.css'
 import { SITE_DESC, SITE_NAME, SITE_URL } from '../../lib/site'
 import { withRetry } from '../../lib/withRetry'
+import { Analytics } from './components/Analytics'
 import type { ChromeContent, NavItem } from './components/SiteChrome'
 import { SiteChrome } from './components/SiteChrome'
 
@@ -62,6 +63,7 @@ export default async function FrontendLayout({ children }: { children: React.Rea
     <html lang="ru">
       <body>
         <SiteChrome chrome={chrome}>{children}</SiteChrome>
+        <Analytics />
       </body>
     </html>
   )
