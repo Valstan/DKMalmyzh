@@ -571,6 +571,25 @@ p {
 .site-footer__author {
   font-size: 0.85rem;
 }
+.site-footer__legal {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+}
+/* Информер посещаемости Метрики — 88×31, отдаётся informer.yandex.ru. Светлая
+   плашка на тёмном подвале: даём ей рамку и скруглeние, чтобы не смотрелась
+   вырезанной. inline-block — иначе строчный <img> ловит baseline-зазор. */
+.site-footer__informer {
+  display: inline-block;
+  margin-top: 0.75rem;
+  line-height: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px #ffffff40;
+}
+.site-footer__informer img {
+  display: block;
+  border: 0;
+}
 .site-footer a {
   color: var(--sun);
   font-weight: 700;

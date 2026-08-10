@@ -3,6 +3,7 @@ import Link from 'next/link'
 import React from 'react'
 
 import { SITE_NAME } from '../../../lib/site'
+import { MetrikaInformer } from './MetrikaInformer'
 
 export type NavItem = { label: string; href: string }
 export type ChromeContent = {
@@ -74,6 +75,10 @@ export function SiteChrome({
                 Валентином Савиных
               </a>
             </p>
+            <p className="site-footer__legal">
+              <Link href="/privacy">Обработка данных посетителей</Link>
+            </p>
+            <MetrikaInformer />
           </div>
           <Image
             className="site-footer__mark"
