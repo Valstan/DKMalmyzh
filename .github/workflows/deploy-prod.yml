@@ -262,8 +262,12 @@ jobs:
           code=$(curl -sk $EXTRA -o /tmp/smoke.html -w '%{http_code}' --max-time 15 -H "$H" "$URL")
           echo "nginx $URL → $code"
           [ "$code" = "200" ] || { echo "::error::через nginx ожидался 200"; exit 1; }
-          if grep -q "РЦКД" /tmp/smoke.html; then
-            echo "content marker OK: «РЦКД» на главной"
+          # Маркер сменился с «РЦКД» на «Малмыж»: сайт стал районным порталом, и
+          # аббревиатура головного учреждения ушла с главной в свой раздел /dk.
+          # «Малмыж» есть и в названии портала, и в шапке — устойчивее к правкам
+          # редактором, чем конкретная строка глобала.
+          if grep -q "Малмыж" /tmp/smoke.html; then
+            echo "content marker OK: «Малмыж» на главной"
           else
             echo "::error::контент-маркер не найден — под боевым Host отвечает не наш сайт"
             grep -oiE "<title>[^<]*</title>" /tmp/smoke.html | head -1 || true

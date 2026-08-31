@@ -3,12 +3,14 @@ import type { CollectionAfterChangeHook, CollectionAfterDeleteHook } from 'paylo
 import type { Post } from '../payload-types'
 import { safeRevalidatePath } from '../lib/safeRevalidate'
 
-// On-demand ISR для новостей: лента /news, страница /news/[slug] и главная
-// (показывает последние новости).
+// On-demand ISR для новостей: лента /news, страница /news/[slug], главная
+// (последние новости и ближайшие афиши) и раздел дома культуры — новость
+// принадлежит учреждению и показывается в его ленте.
 const revalidatePostPaths = (payload: { logger: { info: (m: string) => void } }) => {
-  payload.logger.info('[revalidate] posts → /news, /news/[slug], /')
+  payload.logger.info('[revalidate] posts → /news, /news/[slug], /dk/[slug], /')
   safeRevalidatePath('/news', 'page')
   safeRevalidatePath('/news/[slug]', 'page')
+  safeRevalidatePath('/dk/[slug]', 'page')
   safeRevalidatePath('/', 'page')
 }
 

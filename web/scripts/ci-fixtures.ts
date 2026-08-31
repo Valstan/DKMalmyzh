@@ -15,3 +15,12 @@ export const CI_POST_TITLE_UPDATED = 'CI: тестовая новость (об�
 export const CI_INSTITUTION_SLUG = 'ci-dk'
 export const CI_INSTITUTION_TITLE = 'CI: тестовый дом культуры'
 export const CI_INSTITUTION_TITLE_UPDATED = 'CI: тестовый дом культуры (обновлён)'
+
+// Афиша с датой в будущем: главная показывает только предстоящие события
+// (date >= сейчас), и без такого документа эта ветка отбора не исполняется вовсе.
+// Дата считается от текущего момента, а не задана литералом: захардкоженный год
+// однажды окажется в прошлом, и гейт тихо перестанет проверять фильтр.
+export const CI_EVENT_SLUG = 'ci-event'
+export const CI_EVENT_TITLE = 'CI: будущая афиша'
+export const ciEventDate = (): string =>
+  new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()

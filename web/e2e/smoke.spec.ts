@@ -2,6 +2,9 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
 import {
+  CI_EVENT_TITLE,
+  CI_INSTITUTION_SLUG,
+  CI_INSTITUTION_TITLE_UPDATED,
   CI_PAGE_SLUG,
   CI_PAGE_TITLE,
   CI_POST_SLUG,
@@ -24,6 +27,17 @@ test.describe('публичные страницы открываются в б�
       const res = await page.goto('/')
       expect(res?.status()).toBe(200)
       await expect(page.locator('h1')).toBeVisible()
+    })
+  })
+
+  // Блок ближайших событий отбирает афиши с датой в будущем. Ветка исполняется
+  // только когда такой документ есть — сид кладёт его специально.
+  test('главная показывает предстоящую афишу и не показывает прошедшую', async ({ page }) => {
+    await withoutPageErrors(page, async () => {
+      await page.goto('/')
+      const events = page.locator('section', { hasText: 'Ближайшие события' }).first()
+      await expect(events.getByRole('link', { name: CI_EVENT_TITLE })).toBeVisible()
+      await expect(events.getByRole('link', { name: CI_POST_TITLE_UPDATED })).toHaveCount(0)
     })
   })
 
@@ -63,6 +77,42 @@ test.describe('публичные страницы открываются в б�
       await page.getByRole('link', { name: CI_POST_TITLE_UPDATED }).click()
       await expect(page.locator('h1')).toHaveText(CI_POST_TITLE_UPDATED)
       expect(new URL(page.url()).pathname).toBe(`/news/${CI_POST_SLUG}`)
+    })
+  })
+
+  test('список домов культуры показывает засеянное учреждение', async ({ page }) => {
+    await withoutPageErrors(page, async () => {
+      const res = await page.goto('/dk')
+      expect(res?.status()).toBe(200)
+      await expect(page.getByRole('link', { name: CI_INSTITUTION_TITLE_UPDATED })).toBeVisible()
+    })
+  })
+
+  // Второй динамический маршрут портала: раздел учреждения со своей лентой.
+  // Как и /news/[slug], он `ƒ` — сборка его не исполняет.
+  test('раздел дома культуры рендерится со своей лентой', async ({ page }) => {
+    await withoutPageErrors(page, async () => {
+      const res = await page.goto(`/dk/${CI_INSTITUTION_SLUG}`)
+      expect(res?.status()).toBe(200)
+      await expect(page.locator('h1')).toHaveText(CI_INSTITUTION_TITLE_UPDATED)
+      // Сид кладёт афишу этого ДК — она обязана быть видна именно в его разделе.
+      await expect(page.getByRole('link', { name: CI_POST_TITLE_UPDATED })).toBeVisible()
+    })
+  })
+
+  test('несуществующий дом культуры даёт 404', async ({ page }) => {
+    const res = await page.goto('/dk/такого-дк-нет')
+    expect(res?.status()).toBe(404)
+  })
+
+  test('из общей ленты виден бейдж дома культуры', async ({ page }) => {
+    await withoutPageErrors(page, async () => {
+      await page.goto('/news')
+      // .first(): у ДК в ленте несколько материалов, бейдж у каждого свой.
+      const badge = page.getByRole('link', { name: 'CI', exact: true }).first()
+      await expect(badge).toBeVisible()
+      await badge.click()
+      await expect(page.locator('h1')).toHaveText(CI_INSTITUTION_TITLE_UPDATED)
     })
   })
 

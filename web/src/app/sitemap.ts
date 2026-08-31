@@ -3,21 +3,28 @@ import type { MetadataRoute } from 'next'
 import config from '@payload-config'
 import { getPayload } from 'payload'
 
-// /sitemap.xml — страницы (Pages), новости (Posts) + статические маршруты.
+import { SITE_URL } from '../lib/site'
+
+// /sitemap.xml — дома культуры (Institutions), страницы (Pages), новости (Posts)
+// + статические маршруты.
 //
 // force-dynamic — строим в рантайме против реальной прод-БД, НЕ пререндерим в сборке
 // (иначе в бандл запекается вырожденный sitemap против пустой build-БД).
 export const dynamic = 'force-dynamic'
 
-const baseUrl = (process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3005').replace(/\/$/, '')
+// Тот же SITE_URL, что у метаданных и robots. Раньше здесь был свой baseUrl с
+// другим фолбэком: два источника правды про адрес сайта расходятся молча, и
+// каноникалы с sitemap начинают указывать в разные места.
+const baseUrl = SITE_URL
 
-type Coll = 'pages' | 'posts'
+type Coll = 'institutions' | 'pages' | 'posts'
 type Doc = { slug?: string | null; updatedAt?: string | null }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = [
     { url: `${baseUrl}/`, changeFrequency: 'daily', priority: 1 },
     { url: `${baseUrl}/news`, changeFrequency: 'daily', priority: 0.8 },
+    { url: `${baseUrl}/dk`, changeFrequency: 'weekly', priority: 0.8 },
   ]
 
   let payload: Awaited<ReturnType<typeof getPayload>>
@@ -50,6 +57,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   }
 
+  await collect('institutions', '/dk')
   await collect('pages', '/pages')
   await collect('posts', '/news')
 

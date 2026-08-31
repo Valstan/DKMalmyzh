@@ -5,6 +5,9 @@ import {
   CI_INSTITUTION_SLUG,
   CI_INSTITUTION_TITLE,
   CI_INSTITUTION_TITLE_UPDATED,
+  CI_EVENT_SLUG,
+  CI_EVENT_TITLE,
+  ciEventDate,
   CI_PAGE_SLUG,
   CI_PAGE_TITLE,
   CI_POST_SLUG,
@@ -50,7 +53,7 @@ const main = async () => {
     },
   })
 
-  console.log(`шаг 1/5 — создание дома культуры: ок (id ${institution.id})`)
+  console.log(`шаг 1/6 — создание дома культуры: ок (id ${institution.id})`)
 
   const institutionUpdated = await payload.update({
     collection: 'institutions',
@@ -62,7 +65,7 @@ const main = async () => {
     },
   })
 
-  console.log('шаг 2/5 — обновление дома культуры: ок')
+  console.log('шаг 2/6 — обновление дома культуры: ок')
 
   const page = await payload.create({
     collection: 'pages',
@@ -74,7 +77,7 @@ const main = async () => {
     },
   })
 
-  console.log(`шаг 3/5 — создание страницы: ок (id ${page.id})`)
+  console.log(`шаг 3/6 — создание страницы: ок (id ${page.id})`)
 
   const post = await payload.create({
     collection: 'posts',
@@ -90,7 +93,7 @@ const main = async () => {
     },
   })
 
-  console.log(`шаг 4/5 — создание афиши со связью на дом культуры: ок (id ${post.id})`)
+  console.log(`шаг 4/6 — создание новости со связью на дом культуры: ок (id ${post.id})`)
 
   // Путь ОБНОВЛЕНИЯ — то, ради чего сид и стоит в гейте.
   const updated = await payload.update({
@@ -103,7 +106,22 @@ const main = async () => {
     },
   })
 
-  console.log('шаг 5/5 — обновление существующей новости: ок')
+  console.log('шаг 5/6 — обновление существующей новости: ок')
+
+  const event = await payload.create({
+    collection: 'posts',
+    context: ctx,
+    data: {
+      title: CI_EVENT_TITLE,
+      slug: CI_EVENT_SLUG,
+      date: ciEventDate(),
+      institution: institution.id,
+      type: 'event',
+      _status: 'published',
+    },
+  })
+
+  console.log(`шаг 6/6 — создание предстоящей афиши: ок (id ${event.id})`)
 
   // Проверяем результат фактом, а не отсутствием исключения: сид, который
   // «отработал» и ничего не создал, оставил бы пререндер таким же пустым.
@@ -122,7 +140,7 @@ const main = async () => {
     collection: 'posts',
     where: { institution: { equals: institution.id }, _status: { equals: 'published' } },
     depth: 1,
-    limit: 1,
+    limit: 10,
   })
 
   const problems: string[] = []
@@ -131,7 +149,18 @@ const main = async () => {
   if (institutionUpdated.title !== CI_INSTITUTION_TITLE_UPDATED)
     problems.push('обновление дома культуры не сохранилось')
   if (linked.totalDocs < 1) problems.push('выборка новостей по связи с домом культуры пуста')
-  if (linked.docs[0]?.type !== 'event') problems.push('вид записи (афиша) не сохранился')
+  if (linked.totalDocs < 2) problems.push('по связи с домом культуры видно меньше двух материалов')
+  const upcoming = await payload.find({
+    collection: 'posts',
+    where: {
+      _status: { equals: 'published' },
+      type: { equals: 'event' },
+      date: { greater_than_equal: new Date().toISOString() },
+    },
+    limit: 0,
+  })
+  if (upcoming.totalDocs < 1)
+    problems.push('предстоящих афиш не найдено — на главной блок событий останется пустым')
   if (pages.totalDocs < 1) problems.push(`страниц создано ${pages.totalDocs}, ожидалась минимум 1`)
   if (posts.totalDocs < 1) problems.push(`новостей создано ${posts.totalDocs}, ожидалась минимум 1`)
   if (published.totalDocs < 1) problems.push('ни одна новость не опубликована — пререндер снова пустой')
