@@ -2,6 +2,9 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 
 import {
+  CI_INSTITUTION_SLUG,
+  CI_INSTITUTION_TITLE,
+  CI_INSTITUTION_TITLE_UPDATED,
   CI_PAGE_SLUG,
   CI_PAGE_TITLE,
   CI_POST_SLUG,
@@ -31,6 +34,36 @@ const ctx = { disableRevalidate: true }
 const main = async () => {
   const payload = await getPayload({ config })
 
+  // Учреждение создаётся первым: на него ссылается новость, и связь тоже должна
+  // пройти по накатанной схеме — колонка institution_id есть и в `posts`,
+  // и в `_posts_v`, а теряются такие колонки обычно именно в versions-таблице.
+  const institution = await payload.create({
+    collection: 'institutions',
+    context: ctx,
+    data: {
+      title: CI_INSTITUTION_TITLE,
+      slug: CI_INSTITUTION_SLUG,
+      shortTitle: 'CI',
+      settlement: 'Малмыж',
+      isHead: true,
+      _status: 'published',
+    },
+  })
+
+  console.log(`шаг 1/5 — создание дома культуры: ок (id ${institution.id})`)
+
+  const institutionUpdated = await payload.update({
+    collection: 'institutions',
+    id: institution.id,
+    context: ctx,
+    data: {
+      title: CI_INSTITUTION_TITLE_UPDATED,
+      _status: 'published',
+    },
+  })
+
+  console.log('шаг 2/5 — обновление дома культуры: ок')
+
   const page = await payload.create({
     collection: 'pages',
     context: ctx,
@@ -41,7 +74,7 @@ const main = async () => {
     },
   })
 
-  console.log(`шаг 1/3 — создание страницы: ок (id ${page.id})`)
+  console.log(`шаг 3/5 — создание страницы: ок (id ${page.id})`)
 
   const post = await payload.create({
     collection: 'posts',
@@ -51,11 +84,13 @@ const main = async () => {
       slug: CI_POST_SLUG,
       date: '2026-01-01T00:00:00.000Z',
       category: 'CI',
+      institution: institution.id,
+      type: 'event',
       _status: 'published',
     },
   })
 
-  console.log(`шаг 2/3 — создание новости: ок (id ${post.id})`)
+  console.log(`шаг 4/5 — создание афиши со связью на дом культуры: ок (id ${post.id})`)
 
   // Путь ОБНОВЛЕНИЯ — то, ради чего сид и стоит в гейте.
   const updated = await payload.update({
@@ -68,10 +103,11 @@ const main = async () => {
     },
   })
 
-  console.log('шаг 3/3 — обновление существующей новости: ок')
+  console.log('шаг 5/5 — обновление существующей новости: ок')
 
   // Проверяем результат фактом, а не отсутствием исключения: сид, который
   // «отработал» и ничего не создал, оставил бы пререндер таким же пустым.
+  const institutions = await payload.count({ collection: 'institutions' })
   const pages = await payload.count({ collection: 'pages' })
   const posts = await payload.count({ collection: 'posts' })
   const published = await payload.find({
@@ -80,7 +116,22 @@ const main = async () => {
     limit: 0,
   })
 
+  // Связь читается обратно с depth: 1 — только так видно, что запрос по
+  // relationship действительно ходит через накатанную схему, а не «сохранилось и ладно».
+  const linked = await payload.find({
+    collection: 'posts',
+    where: { institution: { equals: institution.id }, _status: { equals: 'published' } },
+    depth: 1,
+    limit: 1,
+  })
+
   const problems: string[] = []
+  if (institutions.totalDocs < 1)
+    problems.push(`домов культуры создано ${institutions.totalDocs}, ожидался минимум 1`)
+  if (institutionUpdated.title !== CI_INSTITUTION_TITLE_UPDATED)
+    problems.push('обновление дома культуры не сохранилось')
+  if (linked.totalDocs < 1) problems.push('выборка новостей по связи с домом культуры пуста')
+  if (linked.docs[0]?.type !== 'event') problems.push('вид записи (афиша) не сохранился')
   if (pages.totalDocs < 1) problems.push(`страниц создано ${pages.totalDocs}, ожидалась минимум 1`)
   if (posts.totalDocs < 1) problems.push(`новостей создано ${posts.totalDocs}, ожидалась минимум 1`)
   if (published.totalDocs < 1) problems.push('ни одна новость не опубликована — пререндер снова пустой')
@@ -98,8 +149,9 @@ const main = async () => {
   }
 
   console.log(
-    `сид ок: страниц ${pages.totalDocs}, новостей ${posts.totalDocs} (опубликовано ${published.totalDocs}); ` +
-      `создание и обновление прошли, page id ${page.id}`,
+    `сид ок: домов культуры ${institutions.totalDocs}, страниц ${pages.totalDocs}, ` +
+      `новостей ${posts.totalDocs} (опубликовано ${published.totalDocs}); ` +
+      'создание, обновление и выборка по связи прошли',
   )
   process.exit(0)
 }

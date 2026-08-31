@@ -11,3 +11,7 @@ export const CI_PAGE_TITLE = 'CI: тестовая страница'
 export const CI_POST_SLUG = 'ci-post'
 export const CI_POST_TITLE = 'CI: тестовая новость'
 export const CI_POST_TITLE_UPDATED = 'CI: тестовая новость (обновлена)'
+
+export const CI_INSTITUTION_SLUG = 'ci-dk'
+export const CI_INSTITUTION_TITLE = 'CI: тестовый дом культуры'
+export const CI_INSTITUTION_TITLE_UPDATED = 'CI: тестовый дом культуры (обновлён)'
