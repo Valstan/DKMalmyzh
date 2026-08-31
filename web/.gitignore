@@ -20,3 +20,9 @@ public/sitemap*.xml
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Playwright: отчёт, трейсы и скачанные браузеры — артефакты прогона, не исходники
+/playwright-report/
+/test-results/
+/blob-report/
+/.playwright/
