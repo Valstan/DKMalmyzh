@@ -1,10 +1,20 @@
-// Тонкий клиент VK API — ровно два метода, которые нужны импорту.
+// Доступ к ВК — ТОЛЬКО через шлюз SARAFAN (проект setka), никогда напрямую.
 //
-// Токен читается из окружения и НИКОГДА не логируется: сообщения об ошибках
-// собираются из полей ответа, а не из URL запроса (в URL токен и лежит).
-
-const API = 'https://api.vk.com/method'
-const VERSION = '5.199'
+// Это архитектурное правило экосистемы, а не наше предпочтение (pool #062,
+// реестр `brain_matrica/access/INDEX.md`): привилегированный доступ к ВК есть у
+// одного проекта, остальные ходят через него сервисом. Причина не только в том,
+// что N копий токена = N точек утечки: VK привязывает user-токен к IP выпуска,
+// и наш токен с нашего бокса получил бы `error 5 access_token was given to
+// another ip`. Раздача credential технически не работает — работает только
+// «исполни своим токеном и верни результат».
+//
+// В том же реестре записан и анти-паттерн: у соседа рядом с ключом шлюза остался
+// fallback на сырые VK-токены, и «отзыв ключа сегодня ничего не отзывает».
+// Поэтому здесь fallback'а на прямой api.vk.com НЕТ вовсе.
+//
+// Контракт: `setka/docs/GATEWAY.md` — `POST {URL}/api/gateway/call`,
+// заголовок `X-API-Key`, тело `{method, params}`, ответ
+// `{ok: true, response}` либо `{ok: false, error: {error_code, error_msg}}`.
 
 export type VkPhotoSize = { url?: string; width?: number; height?: number; type?: string }
 
@@ -27,54 +37,74 @@ export type VkWallItem = {
 
 export type VkWallResponse = { count?: number; items?: VkWallItem[] }
 
+export type GatewayConfig = { url: string; key: string }
+
 export class VkError extends Error {
   constructor(
     readonly code: number,
     message: string,
+    /** Сколько секунд просил подождать шлюз (429). */
+    readonly retryAfterSec?: number,
   ) {
     super(message)
     this.name = 'VkError'
   }
 }
 
+// Адрес шлюза НЕ захардкожен: это хостнейм чужой инфраструктуры, а такие в
+// отслеживаемых файлах не хранятся (AGENTS.md §Recon-поверхность). Плюс шлюз
+// переезжал вместе с VPS — значение по месту надёжнее константы в коде.
+export function readGatewayConfig(env: Record<string, string | undefined>): GatewayConfig | null {
+  const url = env.SARAFAN_GATEWAY_URL?.trim().replace(/\/$/, '')
+  const key = env.SARAFAN_GATEWAY_KEY?.trim()
+  if (!url || !key) return null
+  return { url, key }
+}
+
 type Params = Record<string, string | number>
 
-async function call<T>(method: string, params: Params, token: string): Promise<T> {
-  const body = new URLSearchParams({ ...toStrings(params), access_token: token, v: VERSION })
-
-  const res = await fetch(`${API}/${method}`, {
+async function call<T>(method: string, params: Params, cfg: GatewayConfig): Promise<T> {
+  const res = await fetch(`${cfg.url}/api/gateway/call`, {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body,
+    headers: { 'content-type': 'application/json', 'x-api-key': cfg.key },
+    body: JSON.stringify({ method, params }),
   })
 
-  if (!res.ok) throw new VkError(0, `${method}: HTTP ${res.status}`)
-
-  const json = (await res.json()) as { response?: T; error?: { error_code?: number; error_msg?: string } }
-  if (json.error) {
-    throw new VkError(json.error.error_code ?? 0, `${method}: ${json.error.error_msg ?? 'ошибка VK'}`)
+  if (res.status === 429) {
+    // Шлюз держит общий бюджет на всех потребителей — сюда упираются законно,
+    // и ждать надо ровно столько, сколько он просит.
+    const retry = Number(res.headers.get('retry-after')) || 60
+    throw new VkError(429, `${method}: шлюз просит подождать ${retry} с`, retry)
   }
-  if (json.response === undefined) throw new VkError(0, `${method}: пустой ответ`)
+  if (res.status === 401) throw new VkError(401, `${method}: ключ шлюза не принят`)
+  if (res.status === 400) throw new VkError(400, `${method}: метод вне allowlist шлюза`)
+  if (res.status === 503) throw new VkError(503, `${method}: шлюз недоступен`)
+  if (!res.ok) throw new VkError(0, `${method}: шлюз ответил HTTP ${res.status}`)
+
+  const json = (await res.json()) as {
+    ok?: boolean
+    response?: T
+    error?: { error_code?: number; error_msg?: string }
+  }
+
+  // Доменная ошибка ВК (закрытая стена, удалённое сообщество) приезжает с
+  // HTTP 200 и ok: false — на код ответа тут смотреть нельзя.
+  if (json.ok === false || json.error) {
+    throw new VkError(
+      json.error?.error_code ?? 0,
+      `${method}: ${json.error?.error_msg ?? 'ошибка ВК'}`,
+    )
+  }
+  if (json.response === undefined) throw new VkError(0, `${method}: пустой ответ шлюза`)
   return json.response
 }
 
-function toStrings(params: Params): Record<string, string> {
-  return Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)]))
-}
-
-// Токен передаётся параметром, а не читается внутри: так функции остаются
-// проверяемыми, а место чтения секрета — ровно одно (скрипт синхронизации).
-export function readVkToken(env: Record<string, string | undefined>): string | null {
-  const token = env.VK_SERVICE_TOKEN?.trim()
-  return token ? token : null
-}
-
 /** owner_id по короткому имени. Сообщество отдаётся отрицательным. */
-export async function resolveOwnerId(screenName: string, token: string): Promise<number | null> {
+export async function resolveOwnerId(screenName: string, cfg: GatewayConfig): Promise<number | null> {
   const res = await call<{ type?: string; object_id?: number }>(
     'utils.resolveScreenName',
     { screen_name: screenName },
-    token,
+    cfg,
   )
   if (!res || !res.object_id) return null
   if (res.type === 'group' || res.type === 'page' || res.type === 'event') return -res.object_id
@@ -85,12 +115,13 @@ export async function resolveOwnerId(screenName: string, token: string): Promise
 export async function wallGet(
   ownerId: number,
   count: number,
-  token: string,
+  cfg: GatewayConfig,
 ): Promise<VkWallResponse> {
-  return call<VkWallResponse>('wall.get', { owner_id: ownerId, count, extended: 0 }, token)
+  return call<VkWallResponse>('wall.get', { owner_id: ownerId, count, extended: 0 }, cfg)
 }
 
-// Лимит VK для сервисного токена — 3 запроса в секунду. Учреждений в районе
-// три десятка, и без паузы синхронизация упирается в «Too many requests» уже на
-// первом десятке: ошибка возвращается вместо стены и выглядит как пустая группа.
-export const VK_RATE_LIMIT_MS = 400
+// Пауза между вызовами шлюза. Квота ключа по умолчанию — 30 запросов в минуту
+// (GATEWAY_QUOTA_PER_MIN в setka), то есть 2 с на запрос. Прежние 400 мс —
+// расчёт под прямой VK API — упирались бы в 429 уже на первом десятке
+// учреждений, и стены оставшихся выглядели бы пустыми.
+export const GATEWAY_PACE_MS = Number(process.env.SARAFAN_PACE_MS || 2100)

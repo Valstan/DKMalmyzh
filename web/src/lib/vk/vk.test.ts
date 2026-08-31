@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parseVkTarget } from './screenName'
 import { itemText, isImportable, largestSize, photoUrls } from './photos'
 import { vkTextToLexical, vkTitleFrom } from './toLexical'
-import { readVkToken } from './api'
+import { readGatewayConfig } from './api'
 
 // Идентификаторы в фикстурах — выдуманные, не из документации ВК и не боевые:
 // пример из доков вендора лежит в allowlist сканера секретов и оставляет гейт
@@ -189,13 +189,21 @@ describe('isImportable', () => {
   })
 })
 
-describe('readVkToken', () => {
-  it('пустая и незаданная переменная одинаково означают «токена нет»', () => {
-    expect(readVkToken({})).toBeNull()
-    expect(readVkToken({ VK_SERVICE_TOKEN: '   ' })).toBeNull()
+describe('readGatewayConfig', () => {
+  // Ходим в ВК только через шлюз SARAFAN; половина настройки — не настройка,
+  // и «есть ключ, но нет адреса» должно означать «выключено», а не попытку.
+  it('без адреса или без ключа — null', () => {
+    expect(readGatewayConfig({})).toBeNull()
+    expect(readGatewayConfig({ SARAFAN_GATEWAY_URL: 'https://gw.invalid' })).toBeNull()
+    expect(readGatewayConfig({ SARAFAN_GATEWAY_KEY: 'k' })).toBeNull()
+    expect(
+      readGatewayConfig({ SARAFAN_GATEWAY_URL: '  ', SARAFAN_GATEWAY_KEY: '  ' }),
+    ).toBeNull()
   })
 
-  it('обрезает пробелы по краям — в env-файл значение попадает копипастой', () => {
-    expect(readVkToken({ VK_SERVICE_TOKEN: ' abc123 ' })).toBe('abc123')
+  it('обрезает пробелы и хвостовой слэш — иначе выйдет //api/gateway/call', () => {
+    expect(
+      readGatewayConfig({ SARAFAN_GATEWAY_URL: ' https://gw.invalid/ ', SARAFAN_GATEWAY_KEY: ' k ' }),
+    ).toEqual({ url: 'https://gw.invalid', key: 'k' })
   })
 })
