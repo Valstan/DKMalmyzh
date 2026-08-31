@@ -293,7 +293,7 @@ jobs:
           scp -q deploy/nginx-dkmalmyzh-tls.conf dkmalmyzh:/tmp/nginx-dkmalmyzh-tls.conf
           ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -e
-          DOMAIN=xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai
+          DOMAIN=xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai
           # Webroot для ACME — в /var/www: домашний каталог пользователя закрыт
           # для nginx-воркера, оттуда челлендж отдавался 404.
           sudo mkdir -p /var/www/dkmalmyzh-acme && sudo chmod 755 /var/www/dkmalmyzh-acme
@@ -332,7 +332,7 @@ jobs:
           set -e
           ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -e
-          DOMAIN=xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai
+          DOMAIN=xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai
           H="Host: $DOMAIN"
           if sudo test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"; then
             URL="https://127.0.0.1/"; EXTRA="--resolve $DOMAIN:443:127.0.0.1"; URL="https://$DOMAIN/"
@@ -354,6 +354,24 @@ jobs:
             exit 1
           fi
           rm -f /tmp/smoke.html
+
+          # Прежний домен обязан отдавать 301 на портал. Без этой проверки
+          # переключение доменов не проверяет никто: сайт на новом имени зелёный,
+          # а старые ссылки могут молча уходить на default_server соседа.
+          LEGACY=xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai
+          loc=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code} %{redirect_url}'                 --max-time 15 "https://$LEGACY/")
+          echo "прежний домен / → $loc"
+          case "$loc" in
+            301*"xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai/dk/rckd") echo "редирект корня прежнего домена OK" ;;
+            *) echo "::error::прежний домен не отдаёт 301 на раздел РЦКД: $loc"; exit 1 ;;
+          esac
+
+          deep=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code} %{redirect_url}'                  --max-time 15 "https://$LEGACY/news")
+          echo "прежний домен /news → $deep"
+          case "$deep" in
+            301*"xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai/news") echo "глубокая ссылка сохраняет путь OK" ;;
+            *) echo "::error::глубокая ссылка прежнего домена не сохраняет путь: $deep"; exit 1 ;;
+          esac
           REMOTE
 
       - name: On failure — журналы прода
