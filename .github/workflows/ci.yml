@@ -47,6 +47,25 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Сканер секретов смотрит всю историю, а не последний коммит: без
+          # fetch-depth: 0 гейт зелен ровно в том сценарии, ради которого ставится.
+          fetch-depth: 0
+
+      # Сканер секретов (мандат Мозга 2026-08-17, D-030). Шагом внутри `gates`, а не
+      # отдельным workflow: `gates` — уже обязательная проверка `main`, поэтому находка
+      # блокирует влитие на сервере с первого же дня, без правки настроек защиты.
+      # Стоит до установки зависимостей: падать надо за секунды, а не за двадцать минут.
+      # Бинарь с явными флагами вместо gitleaks-action — три обязательных свойства
+      # (полная история, --redact, ненулевой exit) видны в файле, а не в умолчаниях обёртки.
+      - name: Secret scan (gitleaks)
+        working-directory: ${{ github.workspace }}
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" | tar -xz gitleaks
+          ./gitleaks git . --config .gitleaks.toml --redact --verbose --no-banner --exit-code 1
+          rm -f gitleaks
 
       - uses: actions/setup-node@v5
         with:
