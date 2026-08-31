@@ -1,6 +1,13 @@
-name: Setup TLS for домкультуры.вмалмыже.рф (manual)
+name: Setup TLS for культура.вмалмыже.рф + домкультуры.вмалмыже.рф (manual)
 
-# Выпускает LE-сертификат для боевого домена и переводит vhost на TLS.
+# Выпускает LE-сертификат СРАЗУ НА ДВА имени и переводит vhost на TLS:
+#   • культура.вмалмыже.рф   — основной домен портала;
+#   • домкультуры.вмалмыже.рф — прежний, отдаёт 301 на раздел РЦКД.
+#
+# Сертификат — новая линия (--cert-name по НОВОМУ домену), а не --expand старой:
+# пути /etc/letsencrypt/live/<новый>/ читаются под стать текущему основному имени,
+# а старая линия отомрёт сама. Именно поэтому --keep-until-expiring тут безопасен:
+# он не мешает создать новую линию, а от повторного выпуска той же — бережёт.
 # Запускается вручную, идемпотентен: повторный запуск при живом сертификате
 # ничего не перевыпускает (certbot сам скажет «not due for renewal»).
 #
@@ -8,7 +15,8 @@ name: Setup TLS for домкультуры.вмалмыже.рф (manual)
 #   • на боксе стоит бутстрап-vhost :80 с ACME-локацией → /var/www/dkmalmyzh-acme
 #     (именно /var/www, а не домашний каталог: он закрыт для nginx-воркера — оттуда
 #     челлендж отдавался 404);
-#   • DNS домена смотрит на этот бокс.
+#   • DNS ОБОИХ доменов смотрит на этот бокс (новый домен заводится у регистратора
+#     вручную владельцем — до этого шага workflow запускать нечего).
 #
 # Почему webroot, а не --nginx: конфиг vhost'а перезаписывается деплоем из репо,
 # и правки, которые certbot вносит в файл, были бы затёрты. Webroot трогает только
@@ -32,7 +40,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DOMAIN: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai   # домкультуры.вмалмыже.рф
+  DOMAIN: xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai        # культура.вмалмыже.рф — основной
+  LEGACY_DOMAIN: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai   # домкультуры.вмалмыже.рф — прежний, в 301
 
 jobs:
   setup:
@@ -70,21 +79,27 @@ jobs:
       - name: Выпустить сертификат (certbot --webroot)
         run: |
           set -e
-          ssh dkmalmyzh 'bash -s' "$DOMAIN" <<'REMOTE'
+          ssh dkmalmyzh 'bash -s' "$DOMAIN" "$LEGACY_DOMAIN" <<'REMOTE'
           set -e
           DOMAIN="$1"
+          LEGACY_DOMAIN="$2"
           WEBROOT=/var/www/dkmalmyzh-acme
           sudo mkdir -p "$WEBROOT/.well-known/acme-challenge"
           sudo chmod 755 /var/www "$WEBROOT" "$WEBROOT/.well-known" "$WEBROOT/.well-known/acme-challenge"
           # ACME-путь должен отвечать 200 ДО обращения в LE — иначе получим fail
           # валидации и лишний удар по rate-limit.
           echo probe-ok | sudo tee "$WEBROOT/.well-known/acme-challenge/probe" >/dev/null
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: $DOMAIN" http://127.0.0.1/.well-known/acme-challenge/probe)
+          # Проба по КАЖДОМУ имени: certbot валидирует их независимо, и молчащее
+          # имя роняет весь выпуск целиком.
+          for NAME in "$DOMAIN" "$LEGACY_DOMAIN"; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: $NAME" http://127.0.0.1/.well-known/acme-challenge/probe)
+            echo "ACME-путь ($NAME) → $code (ожидается 200)"
+            [ "$code" = "200" ] || { echo "::error::ACME-локация не отдаёт файл под Host $NAME — проверь DNS и бутстрап-vhost"; sudo rm -f "$WEBROOT/.well-known/acme-challenge/probe"; exit 1; }
+          done
           sudo rm -f "$WEBROOT/.well-known/acme-challenge/probe"
-          echo "ACME-путь → $code (ожидается 200)"
-          [ "$code" = "200" ] || { echo "::error::ACME-локация не отдаёт файл — сначала прогони deploy-prod (бутстрап-vhost)"; exit 1; }
           sudo certbot certonly --webroot -w "$WEBROOT" \
-            -d "$DOMAIN" --non-interactive --agree-tos --keep-until-expiring
+            -d "$DOMAIN" -d "$LEGACY_DOMAIN" --cert-name "$DOMAIN" \
+            --non-interactive --agree-tos --keep-until-expiring
           sudo test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" \
             || { echo "::error::сертификат не появился"; exit 1; }
           sudo certbot certificates 2>/dev/null | grep -A3 "$DOMAIN" | head -8 || true

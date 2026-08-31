@@ -8,6 +8,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const NEXT_PUBLIC_SERVER_URL =
   process.env.NEXT_PUBLIC_SERVER_URL || process.env.__NEXT_PRIVATE_ORIGIN || 'http://localhost:3005'
 
+// Оба боевых домена: next/image отдаёт удалённую картинку только с разрешённого
+// хоста, а прежний домен на переходный период ещё обслуживает страницы.
+const IMAGE_HOSTS = [
+  ...new Set([
+    NEXT_PUBLIC_SERVER_URL,
+    'https://xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai',
+    'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai',
+  ]),
+]
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Прод-VPS (мало RAM) не тянет `next build` (OOM). Сборка едет в CI
@@ -22,7 +32,7 @@ const nextConfig = {
   outputFileTracingRoot: __dirname,
   images: {
     remotePatterns: [
-      ...[NEXT_PUBLIC_SERVER_URL].map((item) => {
+      ...IMAGE_HOSTS.map((item) => {
         const url = new URL(item)
         return {
           hostname: url.hostname,
