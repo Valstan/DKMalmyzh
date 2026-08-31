@@ -1,0 +1,78 @@
+name: snapshot-probe (temporary)
+
+# ВРЕМЕННЫЙ воркфлоу: снимает .json-снапшот миграций (G192) на раннере, потому что
+# `payload migrate:create` требует живой Postgres, которого нет на машине разработчика.
+# Результат уезжает артефактом, снапшот кладётся в репо отдельным коммитом, а сам
+# файл удаляется из ветки до мержа. В main он попасть не должен.
+
+on:
+  push:
+    branches: [chore/migration-snapshot-g192]
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dkmalmyzh_snapshot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: web
+
+    env:
+      DATABASE_URI: postgresql://postgres:postgres@localhost:5432/dkmalmyzh_snapshot
+      PAYLOAD_SECRET: ci-build-only-secret-not-used-at-runtime
+      NEXT_PUBLIC_SERVER_URL: http://127.0.0.1:3005
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Enable corepack + pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+
+      - name: Install deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate importmap + types
+        run: |
+          pnpm generate:importmap
+          pnpm generate:types
+
+      - name: Какие флаги у migrate:create в этой версии Payload
+        run: pnpm payload migrate:create --help || true
+
+      - name: Состояние каталога миграций ДО
+        run: ls -la src/migrations
+
+      - name: Снять снапшот
+        run: pnpm payload migrate:create g192-snapshot --force-accept-warning || true
+
+      - name: Состояние каталога миграций ПОСЛЕ
+        run: ls -la src/migrations
+
+      - name: Артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: migrations-after
+          path: web/src/migrations/
+          if-no-files-found: error
