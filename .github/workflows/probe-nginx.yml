@@ -64,7 +64,10 @@ jobs:
           echo
           echo "── соседи по боксу (имена скрыты):"
           sudo nginx -T 2>/dev/null | grep -cE "^\s*server_name" | sed 's/^/server-блоков всего: /'
-          sudo nginx -T 2>/dev/null | awk '/# configuration file/{f=$NF} /default_server/{print "default_server держит: " (f ~ /dkmalmyzh/ ? "мы" : "сосед"); exit}'
+          # Матчим именно директиву `listen … default_server`, а не любое вхождение слова:
+          # nginx -T печатает конфиги вместе с комментариями, и наш же комментарий про
+          # default_server соседа даёт ложное «держим мы» (поймано прогоном 33394416236).
+          sudo nginx -T 2>/dev/null | awk '/# configuration file/{f=$NF} /^[[:space:]]*listen[^#]*default_server/{print "default_server держит: " (f ~ /dkmalmyzh/ ? "мы" : "сосед"); exit}'
           echo
           echo "── кто отвечает на наш Host (маркер контента):"
           H="Host: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai"
