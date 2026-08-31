@@ -70,7 +70,7 @@ jobs:
           sudo nginx -T 2>/dev/null | awk '/# configuration file/{f=$NF} /^[[:space:]]*listen[^#]*default_server/{print "default_server держит: " (f ~ /dkmalmyzh/ ? "мы" : "сосед"); exit}'
           echo
           echo "── кто отвечает на наш Host (маркер контента):"
-          H="Host: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai"
+          H="Host: xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai"
           curl -s --max-time 15 -H "$H" -H "X-Forwarded-Proto: https" http://127.0.0.1/ | grep -oiE "<title>[^<]*</title>" | head -1
           echo "── а что отдаёт наш сервис напрямую (:3005):"
           curl -s --max-time 15 http://127.0.0.1:3005/ | grep -oiE "<title>[^<]*</title>" | head -1
