@@ -1,7 +1,7 @@
 import type { getPayload } from 'payload'
 
-import type { VkWallItem } from './api'
-import { resolveOwnerId, wallGet, VkError, VK_RATE_LIMIT_MS } from './api'
+import type { GatewayConfig, VkWallItem } from './api'
+import { resolveOwnerId, wallGet, VkError, GATEWAY_PACE_MS } from './api'
 import { importWallItems } from './import'
 import { parseVkTarget } from './screenName'
 
@@ -10,6 +10,8 @@ import { parseVkTarget } from './screenName'
 // CLI в него не входит (см. README миграций), а фото надо писать в тот самый
 // каталог Media, который есть только на боксе. Поэтому синхронизацию дёргает
 // таймер systemd через локальный HTTP-запрос к уже работающему сайту.
+//
+// В ВК ходим только через шлюз SARAFAN — см. шапку api.ts.
 
 type Payload = Awaited<ReturnType<typeof getPayload>>
 
@@ -22,7 +24,7 @@ export type SyncSummary = {
 }
 
 export type SyncOptions = {
-  token: string
+  gateway: GatewayConfig
   publish: boolean
   wallCount: number
   /** Ограничитель для ручного прогона по одному учреждению. */
@@ -32,8 +34,32 @@ export type SyncOptions = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// Один повтор после 429: шлюз держит общий бюджет на всех потребителей, и
+// упереться в него — штатное событие, а не поломка. Ждём ровно столько, сколько
+// он просит, но не дольше двух минут: таймер придёт снова через полчаса, и
+// висеть до бесконечности незачем.
+const MAX_RETRY_WAIT_SEC = 120
+
+async function withGatewayRetry<T>(
+  fn: () => Promise<T>,
+  say: (message: string) => void,
+  what: string,
+): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    if (err instanceof VkError && err.code === 429 && err.retryAfterSec !== undefined) {
+      const wait = Math.min(err.retryAfterSec, MAX_RETRY_WAIT_SEC)
+      say(`${what}: квота шлюза исчерпана, жду ${wait} с и пробую ещё раз`)
+      await sleep(wait * 1000)
+      return fn()
+    }
+    throw err
+  }
+}
+
 export async function runVkSync(payload: Payload, options: SyncOptions): Promise<SyncSummary> {
-  const { token, publish, wallCount, onlySlug, log } = options
+  const { gateway, publish, wallCount, onlySlug, log } = options
   const summary: SyncSummary = { institutions: 0, created: 0, skipped: 0, failed: 0, messages: [] }
 
   const say = (message: string) => {
@@ -63,13 +89,18 @@ export async function runVkSync(payload: Payload, options: SyncOptions): Promise
     let ownerId: number | null = null
     try {
       if (target.kind === 'owner') {
+        // Числовой адрес разбирается локально — вызов шлюза не тратим.
         ownerId = target.ownerId
       } else if (typeof institution.vkOwnerId === 'number' && institution.vkOwnerId !== 0) {
-        // Короткое имя уже разрешали — второй раз в API не ходим.
+        // Короткое имя уже разрешали — второй раз в шлюз не ходим.
         ownerId = institution.vkOwnerId
       } else {
-        ownerId = await resolveOwnerId(target.screenName, token)
-        await sleep(VK_RATE_LIMIT_MS)
+        ownerId = await withGatewayRetry(
+          () => resolveOwnerId(target.screenName, gateway),
+          say,
+          label,
+        )
+        await sleep(GATEWAY_PACE_MS)
       }
     } catch (err) {
       say(`${label}: owner_id не определён — ${describeVkError(err)}`)
@@ -95,9 +126,9 @@ export async function runVkSync(payload: Payload, options: SyncOptions): Promise
 
     let items: VkWallItem[]
     try {
-      const wall = await wallGet(ownerId, wallCount, token)
+      const wall = await withGatewayRetry(() => wallGet(ownerId, wallCount, gateway), say, label)
       items = wall.items ?? []
-      await sleep(VK_RATE_LIMIT_MS)
+      await sleep(GATEWAY_PACE_MS)
     } catch (err) {
       // Закрытая стена и удалённое сообщество — обычное дело для сельских групп.
       // Одно такое учреждение не должно останавливать импорт остальных.
@@ -129,10 +160,10 @@ export async function runVkSync(payload: Payload, options: SyncOptions): Promise
   return summary
 }
 
-// Сообщение собирается из полей ошибки, а не из строки запроса: в URL к
-// api.vk.com лежит токен, и наивный дамп утащил бы его в журнал прода.
+// Сообщение собирается из полей ошибки, а не из тела запроса: в заголовке к
+// шлюзу лежит ключ проекта, и наивный дамп утащил бы его в журнал прода.
 export function describeVkError(err: unknown): string {
-  if (err instanceof VkError) return `VK ${err.code}: ${err.message}`
+  if (err instanceof VkError) return `шлюз/ВК ${err.code}: ${err.message}`
   if (err instanceof Error) return err.message
   return 'неизвестная ошибка'
 }

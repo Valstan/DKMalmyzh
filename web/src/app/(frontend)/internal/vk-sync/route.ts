@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'crypto'
 import config from '@payload-config'
 import { getPayload } from 'payload'
 
-import { readVkToken } from '../../../../lib/vk/api'
+import { readGatewayConfig } from '../../../../lib/vk/api'
 import { runVkSync } from '../../../../lib/vk/sync'
 
 // Точка запуска импорта из ВК изнутри уже работающего приложения.
@@ -49,16 +49,21 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'нет доступа' }, { status: 403 })
   }
 
-  const token = readVkToken(process.env)
-  if (!token) {
-    return Response.json({ error: 'VK_SERVICE_TOKEN не задан' }, { status: 503 })
+  // Ходим в ВК только через шлюз SARAFAN (pool #062) — прямых токенов у нас нет
+  // и быть не должно. Нет адреса или ключа шлюза — импорт выключен.
+  const gateway = readGatewayConfig(process.env)
+  if (!gateway) {
+    return Response.json(
+      { error: 'SARAFAN_GATEWAY_URL/SARAFAN_GATEWAY_KEY не заданы' },
+      { status: 503 },
+    )
   }
 
   const payload = await getPayload({ config })
 
   try {
     const summary = await runVkSync(payload, {
-      token,
+      gateway,
       publish: PUBLISH,
       wallCount: WALL_COUNT,
       onlySlug: new URL(request.url).searchParams.get('slug') || undefined,

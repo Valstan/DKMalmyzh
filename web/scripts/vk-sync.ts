@@ -1,7 +1,7 @@
 import config from '@payload-config'
 import { getPayload } from 'payload'
 
-import { readVkToken } from '../src/lib/vk/api'
+import { readGatewayConfig } from '../src/lib/vk/api'
 import { runVkSync } from '../src/lib/vk/sync'
 
 // Ручной прогон импорта из ВК — для машины разработчика и для разового
@@ -15,16 +15,16 @@ import { runVkSync } from '../src/lib/vk/sync'
 // (публиковать сразу), VK_SYNC_ONLY=<slug> (одно учреждение).
 
 const main = async () => {
-  const token = readVkToken(process.env)
-  if (!token) {
-    console.error('VK_SERVICE_TOKEN не задан — синхронизировать нечем')
+  const gateway = readGatewayConfig(process.env)
+  if (!gateway) {
+    console.error('SARAFAN_GATEWAY_URL и SARAFAN_GATEWAY_KEY не заданы — ходить в ВК нечем')
     process.exit(1)
   }
 
   const payload = await getPayload({ config })
 
   const summary = await runVkSync(payload, {
-    token,
+    gateway,
     publish: process.env.VK_SYNC_PUBLISH === '1',
     wallCount: Number(process.env.VK_SYNC_COUNT || 20),
     onlySlug: process.env.VK_SYNC_ONLY || undefined,

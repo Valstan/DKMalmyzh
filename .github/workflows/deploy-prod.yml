@@ -225,8 +225,8 @@ jobs:
 
       # Юниты импорта из ВК. Ставятся каждым деплоем идемпотентно: файл меняется —
       # daemon-reload и рестарт таймера, не меняется — не трогаем. Таймер включаем
-      # только когда в env-файле есть и токен, и секрет: без них каждый прогон
-      # писал бы в журнал отказ и выглядел как поломка.
+      # только когда в env-файле есть ключ шлюза SARAFAN и секрет запуска: без них
+      # каждый прогон писал бы в журнал отказ и выглядел как поломка.
       - name: Установить таймер импорта из ВК
         run: |
           set -e
@@ -247,14 +247,14 @@ jobs:
           have_token=0; have_secret=0
           # `|| true` обязателен: под `set -e` неудачный grep (переменной нет —
           # штатный случай) уронил бы весь шаг деплоя.
-          sudo grep -q '^VK_SERVICE_TOKEN=.' /etc/dkmalmyzh/dkmalmyzh.env && have_token=1 || true
+          sudo grep -q '^SARAFAN_GATEWAY_KEY=.' /etc/dkmalmyzh/dkmalmyzh.env && have_token=1 || true
           sudo grep -q '^VK_SYNC_SECRET=.' /etc/dkmalmyzh/dkmalmyzh.env && have_secret=1 || true
           if [ "$have_token" = "1" ] && [ "$have_secret" = "1" ]; then
             sudo systemctl enable --now dkmalmyzh-vk-sync.timer
             echo "таймер импорта из ВК включён: $(systemctl is-active dkmalmyzh-vk-sync.timer)"
           else
             sudo systemctl disable --now dkmalmyzh-vk-sync.timer 2>/dev/null || true
-            echo "VK_SERVICE_TOKEN и/или VK_SYNC_SECRET не заданы — таймер импорта выключен"
+            echo "SARAFAN_GATEWAY_KEY и/или VK_SYNC_SECRET не заданы — таймер импорта выключен"
           fi
           REMOTE
 
