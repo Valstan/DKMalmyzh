@@ -89,6 +89,7 @@ const main = async () => {
       category: 'CI',
       institution: institution.id,
       type: 'event',
+      source: 'manual',
       _status: 'published',
     },
   })
@@ -117,6 +118,7 @@ const main = async () => {
       date: ciEventDate(),
       institution: institution.id,
       type: 'event',
+      source: 'manual',
       _status: 'published',
     },
   })

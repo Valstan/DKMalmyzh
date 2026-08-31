@@ -178,6 +178,41 @@ jobs:
           echo "deployed $SHA"
           REMOTE
 
+      # Юниты импорта из ВК. Ставятся каждым деплоем идемпотентно: файл меняется —
+      # daemon-reload и рестарт таймера, не меняется — не трогаем. Таймер включаем
+      # только когда в env-файле есть и токен, и секрет: без них каждый прогон
+      # писал бы в журнал отказ и выглядел как поломка.
+      - name: Установить таймер импорта из ВК
+        run: |
+          set -e
+          scp -q deploy/dkmalmyzh-vk-sync.service deploy/dkmalmyzh-vk-sync.timer dkmalmyzh:/tmp/
+          ssh dkmalmyzh 'bash -s' <<'REMOTE'
+          set -e
+          changed=0
+          for unit in dkmalmyzh-vk-sync.service dkmalmyzh-vk-sync.timer; do
+            if ! sudo cmp -s "/tmp/$unit" "/etc/systemd/system/$unit"; then
+              sudo cp "/tmp/$unit" "/etc/systemd/system/$unit"
+              changed=1
+            fi
+            rm -f "/tmp/$unit"
+          done
+          [ "$changed" = "1" ] && sudo systemctl daemon-reload || true
+
+          # Значения читаем, но НЕ печатаем: журнал прогона публичный.
+          have_token=0; have_secret=0
+          # `|| true` обязателен: под `set -e` неудачный grep (переменной нет —
+          # штатный случай) уронил бы весь шаг деплоя.
+          sudo grep -q '^VK_SERVICE_TOKEN=.' /etc/dkmalmyzh/dkmalmyzh.env && have_token=1 || true
+          sudo grep -q '^VK_SYNC_SECRET=.' /etc/dkmalmyzh/dkmalmyzh.env && have_secret=1 || true
+          if [ "$have_token" = "1" ] && [ "$have_secret" = "1" ]; then
+            sudo systemctl enable --now dkmalmyzh-vk-sync.timer
+            echo "таймер импорта из ВК включён: $(systemctl is-active dkmalmyzh-vk-sync.timer)"
+          else
+            sudo systemctl disable --now dkmalmyzh-vk-sync.timer 2>/dev/null || true
+            echo "VK_SERVICE_TOKEN и/или VK_SYNC_SECRET не заданы — таймер импорта выключен"
+          fi
+          REMOTE
+
       - name: Smoke check — local routes (/, /news, /admin)
         run: |
           set -e

@@ -1,0 +1,72 @@
+import { timingSafeEqual } from 'crypto'
+import config from '@payload-config'
+import { getPayload } from 'payload'
+
+import { readVkToken } from '../../../../lib/vk/api'
+import { runVkSync } from '../../../../lib/vk/sync'
+
+// Точка запуска импорта из ВК изнутри уже работающего приложения.
+//
+// Почему не отдельный процесс на боксе: на прод едет standalone-бандл, payload
+// CLI в него не входит, а фото надо писать в постоянный каталог Media, который
+// живёт только здесь. Приложение и так подключено к БД и к Media — дешевле
+// дёрнуть его локальным запросом, чем везти на бокс второй рантайм.
+//
+// Дёргает таймер systemd (deploy/dkmalmyzh-vk-sync.timer) запросом на
+// 127.0.0.1:3005. Наружу маршрут закрыт дважды: секретом ниже и `deny` в
+// nginx-vhost — одного секрета мало, потому что публично доступный запускатор
+// долгой задачи это ещё и способ нагрузить единственный vCPU.
+
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+const WALL_COUNT = Number(process.env.VK_SYNC_COUNT || 20)
+
+// По умолчанию импорт кладёт ЧЕРНОВИКИ: материалы чужих учреждений появлялись бы
+// на портале без участия редакции. VK_SYNC_PUBLISH=1 включается, когда владелец
+// убедится в качестве выборки.
+const PUBLISH = process.env.VK_SYNC_PUBLISH === '1'
+
+// Сравнение постоянного времени: наивное `===` на секрете даёт побайтовую утечку
+// через время ответа, а маршрут доступен без аутентификации по определению.
+function secretMatches(given: string | null, expected: string): boolean {
+  if (!given) return false
+  const a = Buffer.from(given)
+  const b = Buffer.from(expected)
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
+
+export async function POST(request: Request): Promise<Response> {
+  const expected = process.env.VK_SYNC_SECRET?.trim()
+
+  // Незаданный секрет НЕ означает «пускать всех»: без него маршрут выключен.
+  if (!expected) {
+    return Response.json({ error: 'синхронизация не настроена' }, { status: 503 })
+  }
+
+  if (!secretMatches(request.headers.get('x-sync-secret'), expected)) {
+    return Response.json({ error: 'нет доступа' }, { status: 403 })
+  }
+
+  const token = readVkToken(process.env)
+  if (!token) {
+    return Response.json({ error: 'VK_SERVICE_TOKEN не задан' }, { status: 503 })
+  }
+
+  const payload = await getPayload({ config })
+
+  try {
+    const summary = await runVkSync(payload, {
+      token,
+      publish: PUBLISH,
+      wallCount: WALL_COUNT,
+      onlySlug: new URL(request.url).searchParams.get('slug') || undefined,
+      log: (message) => payload.logger.info(`[vk-sync] ${message}`),
+    })
+    return Response.json({ ok: true, ...summary })
+  } catch (err) {
+    payload.logger.error(`[vk-sync] прогон не завершился: ${(err as Error)?.message ?? err}`)
+    return Response.json({ error: 'прогон не завершился' }, { status: 500 })
+  }
+}

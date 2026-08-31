@@ -85,6 +85,24 @@ export const Posts: CollectionConfig<'posts'> = {
       relationTo: 'media',
     },
     {
+      // Остальные фото записи. Отдельным полем, а не upload-узлами внутри
+      // richText: рендер richText сложные узлы не отрисовывает вовсе, и картинки
+      // молча исчезли бы со страницы. Заодно мимо граблей формата upload-узла в
+      // Payload v3 (G230) — здесь обычная связь с media.
+      name: 'gallery',
+      type: 'array',
+      label: 'Галерея',
+      labels: { singular: 'Фото', plural: 'Фото' },
+      fields: [
+        {
+          name: 'image',
+          type: 'upload',
+          relationTo: 'media',
+          required: true,
+        },
+      ],
+    },
+    {
       name: 'content',
       type: 'richText',
       label: 'Текст новости',
@@ -95,6 +113,38 @@ export const Posts: CollectionConfig<'posts'> = {
       label: 'Дата публикации',
       admin: {
         position: 'sidebar',
+      },
+    },
+    {
+      // Идентификатор записи в ВК в каноническом виде owner_post (именно так ВК
+      // адресует записи). Уникальность на одном поле, а не составной индекс по
+      // (учреждение, id записи): составной индекс пришлось бы дописывать в SQL
+      // руками, и следующий migrate:create предложил бы его снести — то есть
+      // ловушка для следующего, кто станет генерировать миграцию.
+      name: 'vkUid',
+      type: 'text',
+      label: 'Запись ВКонтакте',
+      unique: true,
+      index: true,
+      admin: {
+        position: 'sidebar',
+        readOnly: true,
+        description: 'Служебное: owner_post. По нему синхронизация узнаёт уже импортированное.',
+      },
+    },
+    {
+      name: 'source',
+      type: 'select',
+      label: 'Источник',
+      required: true,
+      defaultValue: 'manual',
+      options: [
+        { label: 'Создано вручную', value: 'manual' },
+        { label: 'Импорт из ВКонтакте', value: 'vk' },
+      ],
+      admin: {
+        position: 'sidebar',
+        readOnly: true,
       },
     },
     slugField(),
