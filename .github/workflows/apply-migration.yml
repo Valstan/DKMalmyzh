@@ -10,7 +10,7 @@ name: Apply DB migration (manual)
 # payload_migrations — best-effort.
 #
 # Требует те же доступы, что deploy-prod.yml:
-#   secrets.SSH_PRIVATE_KEY, vars.DEPLOY_SSH_HOST, vars.DEPLOY_SSH_PORT
+#   secrets.SSH_PRIVATE_KEY, secrets.DEPLOY_SSH_HOST, vars.DEPLOY_SSH_PORT
 
 on:
   workflow_dispatch:
@@ -34,12 +34,12 @@ jobs:
       - name: Setup SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DEPLOY_SSH_HOST: ${{ vars.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
           DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
         run: |
           set -e
           if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_PORT" ]; then
-            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / vars.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
+            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / secrets.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
             exit 1
           fi
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -64,7 +64,8 @@ jobs:
           ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -e
           DB=$(grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
-          echo "host: $(hostname)"
+          # Хостнейм сюда не печатаем: лог прогона публичный (D-038).
+          echo "ssh: ok"
           echo "payload_migrations table: $(psql "$DB" -tAc "SELECT to_regclass('public.payload_migrations');")"
           REMOTE
 

@@ -7,8 +7,12 @@ name: Deploy to production
 #   secrets.SSH_PRIVATE_KEY        — приватная часть деплой-ключа
 #   secrets.DATABASE_URI           — строка подключения к прод-БД (для CI-сборки НЕ нужна — там эфемерная; здесь не используется на сборке, но имя зарезервировано для будущих шагов)
 #   secrets.PAYLOAD_SECRET         — секрет Payload (на рантайме читается из /etc/dkmalmyzh/dkmalmyzh.env)
-#   vars.DEPLOY_SSH_HOST           — хост прод-сервера
-#   vars.DEPLOY_SSH_PORT           — внешний SSH-порт
+#   secrets.DEPLOY_SSH_HOST        — хост прод-сервера. Именно secret, а не var (D-038):
+#                                    значения vars раскрываются в публичном логе прогона,
+#                                    маскируются только secrets.
+#   vars.DEPLOY_SSH_PORT           — внешний SSH-порт. Осознанно оставлен в vars: значение
+#                                    стандартное и сверхкороткое, а маскируется КАЖДОЕ его
+#                                    вхождение — в secrets оно замазало бы пол-лога.
 #   vars.NEXT_PUBLIC_SERVER_URL    — боевой домен (punycode домкультуры.вмалмыже.рф; бейкается в бандл при сборке)
 #   vars.NEXT_PUBLIC_YANDEX_METRICA_ID — номер счётчика Метрики (D-017); пусто → тег не рендерится
 #   vars.NEXT_PUBLIC_METRIKA_INFORMER  — '1' → видимый информер в подвале (только после включения настройки в кабинете)
@@ -124,12 +128,12 @@ jobs:
       - name: Setup SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DEPLOY_SSH_HOST: ${{ vars.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
           DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
         run: |
           set -e
           if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_PORT" ]; then
-            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / vars.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
+            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / secrets.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
             exit 1
           fi
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -270,6 +274,19 @@ jobs:
 
       - name: On failure — журналы прода
         if: failure()
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
         run: |
-          ssh dkmalmyzh "sudo systemctl status dkmalmyzh --no-pager -l" 2>&1 || true
-          ssh dkmalmyzh "sudo journalctl -u dkmalmyzh -n 80 --no-pager" 2>&1 || true
+          # Лог прогона публичный (D-038), а журнал прода несёт хостнейм в префиксе
+          # каждой строки, путь юнита в `Loaded:` и целую DATABASE_URI в ошибке
+          # подключения к БД. Поэтому: `is-active` вместо полного `systemctl status`,
+          # `-o cat` вместо дефолтного формата (снимает префикс «дата хост юнит[pid]»)
+          # и фильтр на выходе. Фильтр по форме, не по значению: строки подключения
+          # режутся до схемы, адрес хоста — по значению из secrets на случай, если он
+          # приедет из журнала не тем регистром, каким его маскирует раннер.
+          redact() {
+            sed -E -e 's#(postgres(ql)?://)[^[:space:]]*#\1<redacted>#g' \
+                   -e "s#${DEPLOY_SSH_HOST}#<host>#g"
+          }
+          ssh dkmalmyzh "systemctl is-active dkmalmyzh; systemctl show dkmalmyzh -p ActiveState,SubState,Result,ExecMainStatus" 2>&1 | redact || true
+          ssh dkmalmyzh "sudo journalctl -u dkmalmyzh -n 80 --no-pager -o cat" 2>&1 | redact || true
