@@ -1,6 +1,14 @@
 import config from '@payload-config'
 import { getPayload } from 'payload'
 
+import {
+  CI_PAGE_SLUG,
+  CI_PAGE_TITLE,
+  CI_POST_SLUG,
+  CI_POST_TITLE,
+  CI_POST_TITLE_UPDATED,
+} from './ci-fixtures'
+
 // Минимальный сид для гейта CI. Запускается `pnpm payload run scripts/seed-ci.ts`
 // ПОСЛЕ наката миграций и ДО сборки, на эфемерной БД раннера. На прод не едет.
 //
@@ -27,7 +35,8 @@ const main = async () => {
     collection: 'pages',
     context: ctx,
     data: {
-      title: 'CI: тестовая страница',
+      title: CI_PAGE_TITLE,
+      slug: CI_PAGE_SLUG,
       _status: 'published',
     },
   })
@@ -38,7 +47,8 @@ const main = async () => {
     collection: 'posts',
     context: ctx,
     data: {
-      title: 'CI: тестовая новость',
+      title: CI_POST_TITLE,
+      slug: CI_POST_SLUG,
       date: '2026-01-01T00:00:00.000Z',
       category: 'CI',
       _status: 'published',
@@ -53,7 +63,7 @@ const main = async () => {
     id: post.id,
     context: ctx,
     data: {
-      title: 'CI: тестовая новость (обновлена)',
+      title: CI_POST_TITLE_UPDATED,
       _status: 'published',
     },
   })
@@ -74,7 +84,12 @@ const main = async () => {
   if (pages.totalDocs < 1) problems.push(`страниц создано ${pages.totalDocs}, ожидалась минимум 1`)
   if (posts.totalDocs < 1) problems.push(`новостей создано ${posts.totalDocs}, ожидалась минимум 1`)
   if (published.totalDocs < 1) problems.push('ни одна новость не опубликована — пререндер снова пустой')
-  if (!updated.title.includes('обновлена')) problems.push('обновление не сохранилось')
+  if (updated.title !== CI_POST_TITLE_UPDATED) problems.push('обновление не сохранилось')
+  // Slug'и фиксированные — по ним e2e открывает страницы в браузере. Хук
+  // beforeValidate мог бы их переписать, и тогда браузерный гейт получил бы 404,
+  // неотличимый от поломки роутера.
+  if (page.slug !== CI_PAGE_SLUG) problems.push(`slug страницы «${page.slug}», ожидался «${CI_PAGE_SLUG}»`)
+  if (updated.slug !== CI_POST_SLUG) problems.push(`slug новости «${updated.slug}», ожидался «${CI_POST_SLUG}»`)
 
   if (problems.length > 0) {
     console.error('::error::сид отработал, но результат не тот:')

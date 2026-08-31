@@ -23,7 +23,8 @@ concurrency:
 jobs:
   gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 30, а не 20: к сборке добавились установка chromium и прогон e2e.
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -145,3 +146,25 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # Единственный шаг, который открывает страницы в настоящем браузере.
+      # Зачем он нужен поверх сборки и сида: динамические маршруты (/news/[slug],
+      # /pages/[slug]) остаются `ƒ` и в пререндер не попадают — ошибку рендера
+      # конкретного документа сборка не видит, а сид ходит мимо React вовсе.
+      # Ставим последним: браузер качается полминуты, а падать раньше должны
+      # проверки подешевле.
+      - name: Поставить браузер
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: E2E-smoke (прод-сборка в браузере)
+        run: pnpm test:e2e
+
+      # Отчёт нужен только когда что-то легло: по нему видно, на каком шаге и с
+      # каким DOM. При зелёном прогоне артефакт не создаётся.
+      - name: Отчёт playwright при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/playwright-report/
+          retention-days: 7
