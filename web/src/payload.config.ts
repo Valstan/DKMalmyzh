@@ -6,6 +6,7 @@ import path from 'path'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
 
+import { Institutions } from './collections/Institutions'
 import { Pages } from './collections/Pages'
 import { Posts } from './collections/Posts'
 import { Media } from './collections/Media'
@@ -38,7 +39,7 @@ export default buildConfig({
     // Поэтому в CI выставляется PAYLOAD_DB_PUSH=false; по умолчанию (dev) push включён.
     push: process.env.PAYLOAD_DB_PUSH !== 'false',
   }),
-  collections: [Pages, Posts, Media, Users],
+  collections: [Institutions, Pages, Posts, Media, Users],
   globals: [HomeContent, SiteHeader, SiteFooter],
   // Email-уведомления (опционально). Провайдеро-независимо: любой внешний SMTP-relay
   // задаётся через env. Пока SMTP_HOST не задан, адаптер не подключаем → Payload

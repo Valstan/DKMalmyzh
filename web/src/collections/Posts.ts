@@ -6,7 +6,8 @@ import { populatePublishedAt } from '../hooks/populatePublishedAt'
 import { revalidatePost, revalidatePostDelete } from '../hooks/revalidatePost'
 import { slugField } from '../fields/slug'
 
-// Новости сайта. Лента /news, страница /news/[slug], последние — на главной.
+// Новости и афиши портала. Лента /news, страница /news/[slug], последние — на
+// главной, лента конкретного учреждения — на /dk/[slug].
 export const Posts: CollectionConfig<'posts'> = {
   slug: 'posts',
   labels: {
@@ -20,7 +21,7 @@ export const Posts: CollectionConfig<'posts'> = {
     update: adminOrEditor,
   },
   admin: {
-    defaultColumns: ['title', 'date', 'category', 'updatedAt'],
+    defaultColumns: ['title', 'institution', 'type', 'date', 'updatedAt'],
     useAsTitle: 'title',
   },
   fields: [
@@ -31,12 +32,41 @@ export const Posts: CollectionConfig<'posts'> = {
       required: true,
     },
     {
+      name: 'institution',
+      type: 'relationship',
+      label: 'Дом культуры',
+      relationTo: 'institutions',
+      admin: {
+        position: 'sidebar',
+        description: 'Чей это материал. Пусто — общерайонная новость, без привязки к учреждению.',
+      },
+    },
+    {
+      // Афиша — не отдельная коллекция, а вид записи: структурно это тот же
+      // материал с датой, и разведение по коллекциям удвоило бы маршруты, сид,
+      // миграции и импорт из ВК, ничего не добавив редактору.
+      name: 'type',
+      type: 'select',
+      label: 'Вид',
+      required: true,
+      defaultValue: 'news',
+      options: [
+        { label: 'Новость', value: 'news' },
+        { label: 'Афиша', value: 'event' },
+      ],
+      admin: {
+        position: 'sidebar',
+      },
+    },
+    {
       name: 'date',
       type: 'date',
       label: 'Дата новости',
       admin: {
         position: 'sidebar',
-        description: 'Дата, отображаемая в ленте. Если пусто — берётся дата публикации.',
+        description:
+          'Дата в ленте. Для афиши — дата мероприятия: по ней отбираются ближайшие. ' +
+          'Если пусто — берётся дата публикации.',
       },
     },
     {

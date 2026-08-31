@@ -67,6 +67,7 @@ export interface Config {
   };
   blocks: {};
   collections: {
+    institutions: Institution;
     pages: Page;
     posts: Post;
     media: Media;
@@ -78,6 +79,7 @@ export interface Config {
   };
   collectionsJoins: {};
   collectionsSelect: {
+    institutions: InstitutionsSelect<false> | InstitutionsSelect<true>;
     pages: PagesSelect<false> | PagesSelect<true>;
     posts: PostsSelect<false> | PostsSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
@@ -125,6 +127,62 @@ export interface UserAuthOperations {
     email: string;
     password: string;
   };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "institutions".
+ */
+export interface Institution {
+  id: number;
+  /**
+   * Как в документах: «Савальский сельский Дом культуры».
+   */
+  title: string;
+  /**
+   * Для бейджа в общей ленте: «Савали», «РЦКД». Пусто — берётся полное.
+   */
+  shortTitle?: string | null;
+  settlement?: string | null;
+  /**
+   * Одна-две фразы. Идёт в карточку в списке и в описание страницы.
+   */
+  description?: string | null;
+  content?: {
+    root: {
+      type: string;
+      children: {
+        type: any;
+        version: number;
+        [k: string]: unknown;
+      }[];
+      direction: ('ltr' | 'rtl') | null;
+      format: 'left' | 'start' | 'center' | 'right' | 'end' | 'justify' | '';
+      indent: number;
+      version: number;
+    };
+    [k: string]: unknown;
+  } | null;
+  address?: string | null;
+  phone?: string | null;
+  /**
+   * Полная ссылка вида https://vk.com/example — показывается на странице.
+   */
+  vkGroupUrl?: string | null;
+  /**
+   * Числовой id группы, положительный. По нему синхронизация забирает записи; пусто — учреждение из ВК не импортируется.
+   */
+  vkGroupId?: number | null;
+  /**
+   * На раздел головного учреждения ведёт прежний домен домкультуры.вмалмыже.рф.
+   */
+  isHead?: boolean | null;
+  /**
+   * Заполняется автоматически из заголовка. Можно переопределить вручную.
+   */
+  slug?: string | null;
+  updatedAt: string;
+  createdAt: string;
+  _status?: ('draft' | 'published') | null;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -215,7 +273,12 @@ export interface Post {
   id: number;
   title: string;
   /**
-   * Дата, отображаемая в ленте. Если пусто — берётся дата публикации.
+   * Чей это материал. Пусто — общерайонная новость, без привязки к учреждению.
+   */
+  institution?: (number | null) | Institution;
+  type: 'news' | 'event';
+  /**
+   * Дата в ленте. Для афиши — дата мероприятия: по ней отбираются ближайшие. Если пусто — берётся дата публикации.
    */
   date?: string | null;
   /**
@@ -299,6 +362,10 @@ export interface PayloadLockedDocument {
   id: number;
   document?:
     | ({
+        relationTo: 'institutions';
+        value: number | Institution;
+      } | null)
+    | ({
         relationTo: 'pages';
         value: number | Page;
       } | null)
@@ -358,6 +425,26 @@ export interface PayloadMigration {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "institutions_select".
+ */
+export interface InstitutionsSelect<T extends boolean = true> {
+  title?: T;
+  shortTitle?: T;
+  settlement?: T;
+  description?: T;
+  content?: T;
+  address?: T;
+  phone?: T;
+  vkGroupUrl?: T;
+  vkGroupId?: T;
+  isHead?: T;
+  slug?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  _status?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "pages_select".
  */
 export interface PagesSelect<T extends boolean = true> {
@@ -376,6 +463,8 @@ export interface PagesSelect<T extends boolean = true> {
  */
 export interface PostsSelect<T extends boolean = true> {
   title?: T;
+  institution?: T;
+  type?: T;
   date?: T;
   category?: T;
   cover?: T;
