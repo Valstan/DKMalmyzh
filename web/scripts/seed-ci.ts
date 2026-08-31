@@ -32,6 +32,8 @@ const main = async () => {
     },
   })
 
+  console.log(`шаг 1/3 — создание страницы: ок (id ${page.id})`)
+
   const post = await payload.create({
     collection: 'posts',
     context: ctx,
@@ -43,6 +45,8 @@ const main = async () => {
     },
   })
 
+  console.log(`шаг 2/3 — создание новости: ок (id ${post.id})`)
+
   // Путь ОБНОВЛЕНИЯ — то, ради чего сид и стоит в гейте.
   const updated = await payload.update({
     collection: 'posts',
@@ -53,6 +57,8 @@ const main = async () => {
       _status: 'published',
     },
   })
+
+  console.log('шаг 3/3 — обновление существующей новости: ок')
 
   // Проверяем результат фактом, а не отсутствием исключения: сид, который
   // «отработал» и ничего не создал, оставил бы пререндер таким же пустым.
