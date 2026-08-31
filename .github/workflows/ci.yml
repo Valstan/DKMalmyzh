@@ -84,6 +84,26 @@ jobs:
           pnpm generate:importmap
           pnpm generate:types
 
+      - name: PROBE — что умеет payload CLI
+        env:
+          PAYLOAD_DB_PUSH: 'false'
+        run: pnpm payload --help || true
+
+      - name: PROBE — прод-путь, psql -f .sql на чистую БД
+        env:
+          PAYLOAD_DB_PUSH: 'false'
+        run: |
+          set -x
+          psql "$DATABASE_URI" -v ON_ERROR_STOP=1 -f src/migrations/20260621_145321_initial.sql
+          psql "$DATABASE_URI" -c "INSERT INTO payload_migrations (name, batch) VALUES ('20260621_145321_initial', 1);"
+          psql "$DATABASE_URI" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';"
+
+      - name: PROBE — migrate:status с выключенным push
+        env:
+          PAYLOAD_DB_PUSH: 'false'
+        timeout-minutes: 3
+        run: pnpm payload migrate:status || true
+
       - name: Lint
         run: pnpm lint
 
