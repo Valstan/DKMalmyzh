@@ -23,7 +23,12 @@ export function SiteChrome({
   children: React.ReactNode
 }) {
   const brand = chrome?.brand || SITE_NAME
-  const nav = chrome?.nav?.length ? chrome.nav : [{ label: 'Новости', href: '/news' }]
+  const nav = chrome?.nav?.length
+    ? chrome.nav
+    : [
+        { label: 'Новости', href: '/news' },
+        { label: 'Дома культуры', href: '/dk' },
+      ]
   const copyright = chrome?.copyright || `© ${new Date().getFullYear()} ${SITE_NAME}`
 
   return (
@@ -40,7 +45,7 @@ export function SiteChrome({
               <Image src="/brand/mary-emblem.png" alt="" width={116} height={116} priority />
             </span>
             <span className="site-brand__text">
-              <small>Районный центр культуры и досуга</small>
+              <small>Малмыжский район, Кировская область</small>
               <strong>{brand}</strong>
             </span>
           </Link>

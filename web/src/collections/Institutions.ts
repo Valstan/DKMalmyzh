@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { adminOrEditor } from '../access/adminOrEditor'
 import { authenticatedOrPublished } from '../access/authenticatedOrPublished'
+import { revalidateInstitution, revalidateInstitutionDelete } from '../hooks/revalidateInstitution'
 import { slugField } from '../fields/slug'
 
 // Учреждения культуры района: РЦКД Малмыжа и сельские дома культуры. Каждое —
@@ -105,6 +106,10 @@ export const Institutions: CollectionConfig<'institutions'> = {
     },
     slugField(),
   ],
+  hooks: {
+    afterChange: [revalidateInstitution],
+    afterDelete: [revalidateInstitutionDelete],
+  },
   versions: {
     drafts: true,
   },

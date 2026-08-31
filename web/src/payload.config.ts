@@ -25,7 +25,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
     meta: {
-      titleSuffix: ' — РЦКД г. Малмыж',
+      titleSuffix: ' — Культура Малмыжского района',
     },
   },
   editor: lexicalEditor(),
@@ -48,7 +48,7 @@ export default buildConfig({
   email: process.env.SMTP_HOST
     ? nodemailerAdapter({
         defaultFromAddress: process.env.SMTP_FROM_ADDRESS || 'no-reply@xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai',
-        defaultFromName: process.env.SMTP_FROM_NAME || 'РЦКД г. Малмыж',
+        defaultFromName: process.env.SMTP_FROM_NAME || 'Культура Малмыжского района',
         transportOptions: {
           host: process.env.SMTP_HOST,
           port: Number(process.env.SMTP_PORT) || 587,

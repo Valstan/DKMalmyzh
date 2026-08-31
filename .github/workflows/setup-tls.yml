@@ -122,8 +122,8 @@ jobs:
           code=$(curl -s --resolve "$DOMAIN:443:127.0.0.1" -o /tmp/tls-smoke.html -w '%{http_code}' --max-time 20 "https://$DOMAIN/")
           echo "https://$DOMAIN/ → $code"
           [ "$code" = "200" ] || { echo "::error::ожидался 200"; exit 1; }
-          grep -q "РЦКД" /tmp/tls-smoke.html \
-            || { echo "::error::контент-маркер «РЦКД» не найден — отвечает не наш сайт"; grep -oiE "<title>[^<]*</title>" /tmp/tls-smoke.html | head -1; exit 1; }
+          grep -q "Малмыж" /tmp/tls-smoke.html \
+            || { echo "::error::контент-маркер «Малмыж» не найден — отвечает не наш сайт"; grep -oiE "<title>[^<]*</title>" /tmp/tls-smoke.html | head -1; exit 1; }
           echo "content marker OK"
           rm -f /tmp/tls-smoke.html
           REMOTE

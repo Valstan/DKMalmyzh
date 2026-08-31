@@ -4,6 +4,7 @@ import { getPayload } from 'payload'
 
 import { withRetry } from '../../../lib/withRetry'
 import { formatPostDate } from '../../../lib/format'
+import { institutionBadge, institutionHref, institutionLabel } from '../../../lib/institutions'
 
 type PostListItem = {
   id: string | number
@@ -12,6 +13,8 @@ type PostListItem = {
   date?: string | null
   publishedAt?: string | null
   category?: string | null
+  type?: string | null
+  institution?: unknown
 }
 
 async function getPosts(): Promise<PostListItem[]> {
@@ -22,7 +25,8 @@ async function getPosts(): Promise<PostListItem[]> {
         collection: 'posts',
         where: { _status: { equals: 'published' } },
         sort: '-date',
-        depth: 0,
+        // depth: 1 — в общей ленте у каждой карточки бейдж своего дома культуры.
+        depth: 1,
         limit: 100,
       })
       return res.docs as PostListItem[]
@@ -50,13 +54,27 @@ export async function NewsView() {
                 </Link>
               </h2>
               <p className="post-list__meta">
+                {post.type === 'event' ? 'Афиша · ' : ''}
                 {formatPostDate(post.date || post.publishedAt)}
                 {post.category ? ` · ${post.category}` : ''}
+                <PostInstitution institution={post.institution} />
               </p>
             </li>
           ))}
         </ul>
       )}
     </section>
+  )
+}
+
+// Бейдж учреждения. Материал без привязки — общерайонный, бейджа не получает.
+function PostInstitution({ institution }: { institution: unknown }) {
+  const ref = institutionBadge(institution)
+  if (!ref) return null
+  return (
+    <>
+      {' · '}
+      <Link href={institutionHref(ref)}>{institutionLabel(ref)}</Link>
+    </>
   )
 }
