@@ -63,10 +63,21 @@ jobs:
           set -e
           ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -e
-          DB=$(grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
-          # Хостнейм сюда не печатаем: лог прогона публичный (D-038).
+          # sudo обязателен: env-файл закрыт от обычного пользователя. Без него grep
+          # отдаёт пустую строку, psql идёт на локальный сокет под именем валстана,
+          # и всё падает уже на этапе применения — с сообщением про роль, из
+          # которого причина не видна.
+          DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
+          if [ -z "$DB" ]; then
+            echo "::error::DATABASE_URI не прочитан из env-файла прода"
+            exit 1
+          fi
+          # Хостнейм и строку подключения сюда не печатаем: лог прогона публичный (D-038).
           echo "ssh: ok"
-          echo "payload_migrations table: $(psql "$DB" -tAc "SELECT to_regclass('public.payload_migrations');")"
+          # Отдельной командой, а не внутри echo: в подстановке ошибка psql тонет,
+          # и шаг рапортует «ок» на неработающем подключении.
+          REG=$(psql "$DB" -tAc "SELECT to_regclass('public.payload_migrations');")
+          echo "payload_migrations table: ${REG:-нет}"
           REMOTE
 
       - name: Apply migration
@@ -78,7 +89,11 @@ jobs:
           ssh dkmalmyzh 'bash -s' "${{ inputs.migration }}" <<'REMOTE'
           set -e
           NAME="$1"
-          DB=$(grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
+          DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
+          if [ -z "$DB" ]; then
+            echo "::error::DATABASE_URI не прочитан из env-файла прода"
+            exit 1
+          fi
           echo "Применяю $NAME ..."
           psql "$DB" -v ON_ERROR_STOP=1 -f /tmp/mig.sql
           # запись в реестр — best-effort и идемпотентно.
