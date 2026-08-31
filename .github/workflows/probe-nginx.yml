@@ -3,7 +3,7 @@ name: Probe nginx (manual, read-only)
 # Диагностика публикации домена: какой server-блок реально отвечает на боевой Host.
 # Ничего не меняет — только читает. Запускается вручную.
 #
-# Зачем: сайт живёт на боксе не один (рядом гоньба.рф, вмалмыже.рф). Проверка
+# Зачем: сайт живёт на боксе не один — рядом другие сайты портфеля. Проверка
 # «curl -H Host … → 200» ничего не доказывает: 200 отдаст и соседний сайт, если
 # наш server-блок не загружен. Здесь смотрим `nginx -T` и контент-маркер.
 
@@ -24,7 +24,7 @@ jobs:
       - name: Setup SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          DEPLOY_SSH_HOST: ${{ vars.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
           DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
         run: |
           set -e
@@ -53,8 +53,18 @@ jobs:
           echo "── include-директивы в nginx.conf:"
           grep -n "include" /etc/nginx/nginx.conf
           echo
-          echo "── все server_name в загруженной конфигурации (nginx -T):"
-          sudo nginx -T 2>/dev/null | grep -nE "^\s*(server_name|listen|# configuration file)" | sed 's/^ *//'
+          # Лог прогона публичный (D-038). Полный дамп server_name с общего бокса —
+          # это состав жильцов в открытом виде, поэтому печатаем только свои строки,
+          # а про соседей — счётчик и ответ на единственный нужный вопрос: чей
+          # default_server. Имена соседних сайтов в лог не идут.
+          # Фильтруем по имени файла конфигурации, а не по домену: наш server_name —
+          # punycode и слова dkmalmyzh не содержит, грепом по нему свои же строки и потеряли бы.
+          echo "── наш блок в загруженной конфигурации (nginx -T):"
+          sudo nginx -T 2>/dev/null | awk '/# configuration file/{f=$NF; if (f ~ /dkmalmyzh/) print "── " f; next} f ~ /dkmalmyzh/ && /^[[:space:]]*(server_name|listen)/{sub(/^[[:space:]]+/,""); print}'
+          echo
+          echo "── соседи по боксу (имена скрыты):"
+          sudo nginx -T 2>/dev/null | grep -cE "^\s*server_name" | sed 's/^/server-блоков всего: /'
+          sudo nginx -T 2>/dev/null | awk '/# configuration file/{f=$NF} /default_server/{print "default_server держит: " (f ~ /dkmalmyzh/ ? "мы" : "сосед"); exit}'
           echo
           echo "── кто отвечает на наш Host (маркер контента):"
           H="Host: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai"
