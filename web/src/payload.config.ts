@@ -32,9 +32,11 @@ export default buildConfig({
     pool: {
       connectionString: process.env.DATABASE_URI || '',
     },
-    // MVP/greenfield: push автосинхронизирует схему в dev. Прод-миграции —
-    // на этапе деплоя (web/src/migrations/).
-    push: true,
+    // push автосинхронизирует схему по конфигу, минуя миграции. Это удобно в dev и
+    // недопустимо там, где схему должна давать миграция: с включённым push гейт
+    // проверяет автосинхро, а миграция, ломающая прод-схему, проходит зелёной.
+    // Поэтому в CI выставляется PAYLOAD_DB_PUSH=false; по умолчанию (dev) push включён.
+    push: process.env.PAYLOAD_DB_PUSH !== 'false',
   }),
   collections: [Pages, Posts, Media, Users],
   globals: [HomeContent, SiteHeader, SiteFooter],
