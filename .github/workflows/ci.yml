@@ -1,9 +1,14 @@
 name: CI
 
-# Гейты проекта (lint + typecheck + build) гоняются здесь, на раннере GitHub, а не
-# на машине разработчика: `pnpm build` требует живой Postgres (Payload читает БД на
-# пререндере), и держать его локально ради каждого PR не нужно — тут БД эфемерная.
-# Сборка прод-артефакта живёт отдельно, в deploy-prod.yml.
+# Гейты проекта (сканер секретов + lint + typecheck + миграции + сид + build) гоняются
+# здесь, на раннере GitHub, а не на машине разработчика: `pnpm build` требует живой
+# Postgres (Payload читает БД на пререндере), и держать его локально ради каждого PR
+# не нужно — тут БД эфемерная. Сборка прод-артефакта живёт отдельно, в deploy-prod.yml.
+#
+# Порядок шагов неслучаен: дешёвые проверки впереди (сканер за секунды, lint/typecheck
+# без БД), дорогие — за ними. Схема БД приезжает миграцией, а не автосинхро, и по ней
+# прогоняется сид с созданием И обновлением документа: только так гейт видит миграцию,
+# ломающую прод-схему.
 
 on:
   pull_request:
@@ -40,8 +45,11 @@ jobs:
         working-directory: web
 
     env:
-      # Эфемерная БД CI: push:true создаёт схему, пререндер отдаёт пустые страницы.
+      # Эфемерная БД CI. Схему даёт МИГРАЦИЯ, а не автосинхро: с push:true гейт
+      # проверял автосинхронизацию по конфигу, а миграция, ломающая прод-схему,
+      # проходила зелёной. Выключение push здесь — половина смысла этого job'а.
       DATABASE_URI: postgresql://postgres:postgres@localhost:5432/dkmalmyzh_ci
+      PAYLOAD_DB_PUSH: 'false'
       PAYLOAD_SECRET: ci-build-only-secret-not-used-at-runtime
       NEXT_PUBLIC_SERVER_URL: http://127.0.0.1:3005
 
@@ -84,31 +92,49 @@ jobs:
           pnpm generate:importmap
           pnpm generate:types
 
-      - name: PROBE — что умеет payload CLI
-        env:
-          PAYLOAD_DB_PUSH: 'false'
-        run: pnpm payload --help || true
-
-      - name: PROBE — прод-путь, psql -f .sql на чистую БД
-        env:
-          PAYLOAD_DB_PUSH: 'false'
-        run: |
-          set -x
-          psql "$DATABASE_URI" -v ON_ERROR_STOP=1 -f src/migrations/20260621_145321_initial.sql
-          psql "$DATABASE_URI" -c "INSERT INTO payload_migrations (name, batch) VALUES ('20260621_145321_initial', 1);"
-          psql "$DATABASE_URI" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public';"
-
-      - name: PROBE — migrate:status с выключенным push
-        env:
-          PAYLOAD_DB_PUSH: 'false'
-        timeout-minutes: 3
-        run: pnpm payload migrate:status || true
-
       - name: Lint
         run: pnpm lint
 
       - name: Typecheck
         run: pnpm typecheck
+
+      # Накатываем именно `.sql` и именно через psql — тем же путём, каким миграция
+      # приезжает на прод (apply-migration.yml). `.sql` извлекается из `up()` руками,
+      # и расходится с ним молча: у соседа ручная зеркальная миграция потеряла
+      # `version_*`-колонки, и 29 запросов легли уже в проде (G231). Гейт, гоняющий
+      # `payload migrate` по `.ts`, проверял бы артефакт, которого на проде нет.
+      - name: Накатить миграции (прод-путь, psql -f)
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          COUNT=0
+          for f in src/migrations/*.sql; do
+            NAME=$(basename "$f" .sql)
+            echo "── $NAME"
+            psql "$DATABASE_URI" -v ON_ERROR_STOP=1 -q -f "$f"
+            psql "$DATABASE_URI" -q -c "INSERT INTO payload_migrations (name, batch) VALUES ('$NAME', 1);"
+            COUNT=$((COUNT + 1))
+          done
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::в src/migrations нет ни одного .sql — накатывать нечего, гейт бессмысленен"
+            exit 1
+          fi
+          ROWS=$(psql "$DATABASE_URI" -tAc "SELECT count(*) FROM payload_migrations;")
+          echo "накачено миграций: $COUNT, записей в реестре: $ROWS"
+          [ "$COUNT" = "$ROWS" ] || { echo "::error::реестр не сошёлся с числом накаченных миграций"; exit 1; }
+
+      # Payload читает реестр и сверяет его со своими файлами миграций. Расхождение
+      # (файл есть, а в реестре нет) — признак того, что прод-путь неполон.
+      - name: Payload видит миграции применёнными
+        timeout-minutes: 5
+        run: pnpm payload migrate:status
+
+      # Сид: создание И обновление существующего документа. Зелёный импорт доказывает
+      # только полноту пути СОЗДАНИЯ — обновление ходит по другим таблицам (G231).
+      # Заодно пререндер перестаёт собираться на пустой БД (класс G230).
+      - name: Сид минимального контента
+        timeout-minutes: 5
+        run: pnpm payload run scripts/seed-ci.ts
 
       - name: Build
         run: pnpm build
