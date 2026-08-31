@@ -57,22 +57,67 @@ jobs:
         with:
           fetch-depth: 2
 
-      # Предохранитель миграций: `payload migrate` в CI зависает (drizzle push prompt)
-      # и стандартный standalone-бандл не несёт payload CLI → Payload-миграции применяет
-      # разработчик/brain ВРУЧНУЮ на проде (psql -f .sql + запись в payload_migrations)
-      # ДО деплоя. CI лишь проверяет, что в коммите нет неприменённых миграций.
-      # Ручной workflow_dispatch = «уже применил» → guard пропускается.
+      # Предохранитель миграций. Стандартный standalone-бандл не несёт payload CLI,
+      # поэтому миграции применяются на проде ВРУЧНУЮ (apply-migration.yml: psql -f
+      # .sql + запись в payload_migrations) ДО деплоя кода. Ручной workflow_dispatch
+      # означает «уже применил» — там guard пропускается.
+      #
+      # Гейт сверяет миграции репозитория с РЕЕСТРОМ НА ПРОДЕ, а не с прошлым
+      # коммитом.
+      #
+      # Прежняя версия смотрела только `HEAD~1..HEAD` и потому останавливала ровно
+      # тот коммит, который миграцию вносит. Следующий коммит нёс тот же
+      # неприменённый код дальше — и деплоился спокойно. Поймано 31.08 на живом
+      # проде: миграция institutions осталась неприменённой, код, который её
+      # требует, уехал следующим же PR, `/api/posts` и `/api/institutions` начали
+      # отдавать 500, а публичные страницы держались только на мягкой деградации —
+      # то есть снаружи поломка была почти не видна.
+      #
+      # Источник правды о применённом — таблица payload_migrations на проде.
+      # Нечитаемый реестр останавливает деплой: «не смогли проверить» здесь не
+      # то же самое, что «всё в порядке».
       - name: Migration guard
         if: github.event_name != 'workflow_dispatch'
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
         run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_guard
+          chmod 600 ~/.ssh/id_ed25519_guard
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          set +e
+          APPLIED=$(ssh -i ~/.ssh/id_ed25519_guard -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -p "$DEPLOY_SSH_PORT" "valstan@$DEPLOY_SSH_HOST" 'bash -s' <<'REMOTE'
           set -e
-          NEW=$(git diff --name-only --diff-filter=A HEAD~1 HEAD -- 'web/src/migrations/*.ts' | grep -v '/index\.ts$' || true)
-          if [ -n "$NEW" ]; then
-            echo "::error::Коммит вносит новые Payload-миграции. Примени их на проде вручную (psql -f web/src/migrations/<ts>.sql + INSERT в payload_migrations), затем запусти деплой через workflow_dispatch."
-            echo "$NEW"
+          DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
+          [ -n "$DB" ] || exit 3
+          psql "$DB" -tAc "SELECT name FROM payload_migrations ORDER BY name;"
+          REMOTE
+          )
+          RC=$?
+          set -e
+          rm -f ~/.ssh/id_ed25519_guard
+
+          if [ "$RC" -ne 0 ]; then
+            echo "::error::реестр миграций на проде не прочитан (код $RC) — деплой остановлен"
             exit 1
           fi
-          echo "Новых Payload-миграций в коммите нет — деплой продолжается."
+
+          MISSING=""
+          for f in web/src/migrations/*.sql; do
+            NAME=$(basename "$f" .sql)
+            printf '%s\n' "$APPLIED" | grep -qxF "$NAME" || MISSING="$MISSING $NAME"
+          done
+
+          if [ -n "$MISSING" ]; then
+            echo "::error::на проде не применены миграции:$MISSING"
+            echo "Накати их через apply-migration.yml (по одной), затем запусти деплой через workflow_dispatch."
+            exit 1
+          fi
+          echo "все миграции репозитория есть в реестре прода — деплой продолжается"
 
       - uses: actions/setup-node@v5
         with:
