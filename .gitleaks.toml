@@ -1,0 +1,49 @@
+# Конфиг сканера секретов gitleaks — гейт на каждый PR (мандат Мозга 2026-08-17, D-030).
+#
+# Зачем свои правила. Дефолтные 195 правил gitleaks не видят ВК-токен вовсе и
+# пропускают Telegram-токен внутри URL (#170, измерено Сарафаном). Сканер, зелёный
+# на том самом классе, ради которого он ставится, — это #104, а не гейт. Ниже
+# добавлены классы, которые реально ходят в этом проекте: ВК (импорт контента
+# владельца из ВК — ближайшая нитка), Telegram (класс кластера), строка подключения
+# к прод-БД и приватный ключ деплоя (последний ловится дефолтным правилом).
+#
+# Правила описывают ФОРМУ, а не значение (#191): denylist с настоящими значениями
+# сам публикует то, что запрещает.
+
+[extend]
+useDefault = true
+
+# Заведомо не-секреты этого репозитория: публичные плейсхолдеры эфемерной БД CI.
+# Оба значения не дают доступа никуда и опубликованы в ci.yml осознанно.
+[allowlist]
+description = "Публичные плейсхолдеры CI"
+regexes = [
+  '''ci-build-only-secret-not-used-at-runtime''',
+  '''postgresql://postgres:postgres@localhost''',
+]
+
+[[rules]]
+id = "vk-access-token"
+description = "ВК: access token нового формата (vk1.a.*)"
+regex = '''vk1\.a\.[A-Za-z0-9_-]{50,}'''
+keywords = ["vk1.a."]
+tags = ["vk", "token"]
+
+[[rules]]
+id = "vk-access-token-legacy"
+description = "ВК: access token старого формата — ровно 85 hex-символов"
+regex = '''\b[a-f0-9]{85}\b'''
+tags = ["vk", "token"]
+
+[[rules]]
+id = "telegram-bot-token"
+description = "Telegram: bot token, в том числе внутри URL api.telegram.org/bot<token>"
+regex = '''\b[0-9]{6,12}:[A-Za-z0-9_-]{35}\b'''
+tags = ["telegram", "token"]
+
+[[rules]]
+id = "postgres-uri-with-password"
+description = "PostgreSQL: строка подключения с паролем (DATABASE_URI)"
+regex = '''postgres(?:ql)?://[^:@/\s]+:[^@/\s]+@[^/\s]+'''
+keywords = ["postgres"]
+tags = ["database", "uri"]
