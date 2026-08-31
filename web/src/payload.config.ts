@@ -18,6 +18,15 @@ import { SiteFooter } from './globals/SiteFooter'
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
 
+// Основной домен портала — культура.вмалмыже.рф; домкультуры.вмалмыже.рф остаётся
+// на переходный период (301 в nginx, но админка и API по нему ещё могут ходить).
+const PORTAL_ORIGIN = 'https://xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai'
+const LEGACY_ORIGIN = 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai'
+
+const ORIGINS = Array.from(
+  new Set([process.env.NEXT_PUBLIC_SERVER_URL, PORTAL_ORIGIN, LEGACY_ORIGIN].filter(Boolean)),
+) as string[]
+
 export default buildConfig({
   admin: {
     user: Users.slug,
@@ -47,7 +56,7 @@ export default buildConfig({
   // Реальные SMTP-доступы живут ТОЛЬКО в /etc/dkmalmyzh/dkmalmyzh.env на проде.
   email: process.env.SMTP_HOST
     ? nodemailerAdapter({
-        defaultFromAddress: process.env.SMTP_FROM_ADDRESS || 'no-reply@xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai',
+        defaultFromAddress: process.env.SMTP_FROM_ADDRESS || 'no-reply@xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai',
         defaultFromName: process.env.SMTP_FROM_NAME || 'Культура Малмыжского района',
         transportOptions: {
           host: process.env.SMTP_HOST,
@@ -63,7 +72,12 @@ export default buildConfig({
         },
       })
     : undefined,
-  cors: [process.env.NEXT_PUBLIC_SERVER_URL || ''].filter(Boolean),
+  // Оба домена: боевой URL бейкается один, но прежний домен ещё жив и на
+  // переходный период обращается к тому же API. csrf задан явно тем же списком —
+  // без него Payload выводит его из cors/serverURL, и это неявное поведение
+  // ломается ровно тогда, когда список перестаёт быть одноэлементным.
+  cors: [...ORIGINS],
+  csrf: [...ORIGINS],
   secret: process.env.PAYLOAD_SECRET || '',
   sharp,
   i18n: {
