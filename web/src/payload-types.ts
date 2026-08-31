@@ -165,13 +165,13 @@ export interface Institution {
   address?: string | null;
   phone?: string | null;
   /**
-   * Полная ссылка вида https://vk.com/example — показывается на странице.
+   * Полная ссылка вида https://vk.com/example. Показывается на странице и служит источником импорта: пусто — записи из ВК не забираются.
    */
   vkGroupUrl?: string | null;
   /**
-   * Числовой id группы, положительный. По нему синхронизация забирает записи; пусто — учреждение из ВК не импортируется.
+   * Определяется автоматически по ссылке. Отрицательный — сообщество, положительный — личная страница.
    */
-  vkGroupId?: number | null;
+  vkOwnerId?: number | null;
   /**
    * На раздел головного учреждения ведёт прежний домен домкультуры.вмалмыже.рф.
    */
@@ -286,6 +286,12 @@ export interface Post {
    */
   category?: string | null;
   cover?: (number | null) | Media;
+  gallery?:
+    | {
+        image: number | Media;
+        id?: string | null;
+      }[]
+    | null;
   content?: {
     root: {
       type: string;
@@ -302,6 +308,11 @@ export interface Post {
     [k: string]: unknown;
   } | null;
   publishedAt?: string | null;
+  /**
+   * Служебное: owner_post. По нему синхронизация узнаёт уже импортированное.
+   */
+  vkUid?: string | null;
+  source: 'manual' | 'vk';
   /**
    * Заполняется автоматически из заголовка. Можно переопределить вручную.
    */
@@ -436,7 +447,7 @@ export interface InstitutionsSelect<T extends boolean = true> {
   address?: T;
   phone?: T;
   vkGroupUrl?: T;
-  vkGroupId?: T;
+  vkOwnerId?: T;
   isHead?: T;
   slug?: T;
   updatedAt?: T;
@@ -468,8 +479,16 @@ export interface PostsSelect<T extends boolean = true> {
   date?: T;
   category?: T;
   cover?: T;
+  gallery?:
+    | T
+    | {
+        image?: T;
+        id?: T;
+      };
   content?: T;
   publishedAt?: T;
+  vkUid?: T;
+  source?: T;
   slug?: T;
   updatedAt?: T;
   createdAt?: T;

@@ -698,3 +698,18 @@ p {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Галерея записи (фото из импорта ВК). Колонки резиновые: в записях сельских
+   ДК бывает и одно фото, и десяток. */
+.post-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.post-gallery img {
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+}

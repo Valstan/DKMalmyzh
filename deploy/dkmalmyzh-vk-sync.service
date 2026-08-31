@@ -1,0 +1,38 @@
+[Unit]
+# Импорт записей из сообществ ВК домов культуры района.
+#
+# Не отдельный процесс с payload CLI, а локальный запрос к уже работающему
+# сайту: на прод едет standalone-бандл, CLI в него не входит (см. README
+# миграций), а фото надо писать в постоянный каталог Media, который есть только
+# на этом боксе. Приложение и так подключено к БД и к Media — второй рантайм
+# ради импорта везти незачем.
+#
+# Секреты (VK_SERVICE_TOKEN, VK_SYNC_SECRET) берутся из того же EnvironmentFile,
+# что и остальные значения сайта. В репозитории их нет: формат `vk1.a.*` стоит
+# отдельным правилом в сканере секретов гейта.
+Description=Импорт записей из ВКонтакте для портала культуры Малмыжского района
+After=network-online.target dkmalmyzh.service
+Requires=dkmalmyzh.service
+
+[Service]
+Type=oneshot
+User=valstan
+EnvironmentFile=/etc/dkmalmyzh/dkmalmyzh.env
+
+# --fail: HTTP 4xx/5xx должны валить юнит, иначе «не настроено» и «нет доступа»
+# выглядели бы в журнале как успешный прогон.
+# --max-time: три десятка стен с загрузкой фото — минуты; зависший прогон не
+# должен наложиться на следующий по таймеру.
+ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 900 \
+    -X POST \
+    -H "x-sync-secret: ${VK_SYNC_SECRET}" \
+    http://127.0.0.1:3005/internal/vk-sync
+
+TimeoutStartSec=960
+
+# Импорт — фоновая работа: посетитель сайта важнее, а vCPU на боксе один.
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target
