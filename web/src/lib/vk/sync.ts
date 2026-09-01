@@ -17,6 +17,8 @@ type Payload = Awaited<ReturnType<typeof getPayload>>
 
 export type SyncSummary = {
   institutions: number
+  /** Стен, реально прочитанных за прогон: у части учреждений их несколько. */
+  sources: number
   created: number
   skipped: number
   failed: number
@@ -60,7 +62,14 @@ async function withGatewayRetry<T>(
 
 export async function runVkSync(payload: Payload, options: SyncOptions): Promise<SyncSummary> {
   const { gateway, publish, wallCount, onlySlug, log } = options
-  const summary: SyncSummary = { institutions: 0, created: 0, skipped: 0, failed: 0, messages: [] }
+  const summary: SyncSummary = {
+    institutions: 0,
+    sources: 0,
+    created: 0,
+    skipped: 0,
+    failed: 0,
+    messages: [],
+  }
 
   const say = (message: string) => {
     summary.messages.push(message)
@@ -69,9 +78,7 @@ export async function runVkSync(payload: Payload, options: SyncOptions): Promise
 
   const institutions = await payload.find({
     collection: 'institutions',
-    where: onlySlug
-      ? { and: [{ vkGroupUrl: { exists: true } }, { slug: { equals: onlySlug } }] }
-      : { vkGroupUrl: { exists: true } },
+    where: onlySlug ? { slug: { equals: onlySlug } } : {},
     depth: 0,
     limit: 500,
     pagination: false,
@@ -79,82 +86,103 @@ export async function runVkSync(payload: Payload, options: SyncOptions): Promise
 
   for (const institution of institutions.docs) {
     const label = institution.shortTitle || institution.title || `#${institution.id}`
-    const target = parseVkTarget(institution.vkGroupUrl)
+    const sources = Array.isArray(institution.vkSources) ? institution.vkSources : []
 
-    if (!target) {
-      say(`${label}: ссылка на ВК не разобрана — пропуск`)
-      continue
-    }
+    if (sources.length === 0) continue
 
-    let ownerId: number | null = null
-    try {
-      if (target.kind === 'owner') {
-        // Числовой адрес разбирается локально — вызов шлюза не тратим.
-        ownerId = target.ownerId
-      } else if (typeof institution.vkOwnerId === 'number' && institution.vkOwnerId !== 0) {
-        // Короткое имя уже разрешали — второй раз в шлюз не ходим.
-        ownerId = institution.vkOwnerId
-      } else {
-        ownerId = await withGatewayRetry(
-          () => resolveOwnerId(target.screenName, gateway),
-          say,
-          label,
-        )
-        await sleep(GATEWAY_PACE_MS)
+    // owner_id, определённые за этот прогон, складываем и записываем в карточку
+    // ОДНИМ обновлением: по обновлению на источник плодило бы версии документа
+    // на каждый прогон таймера.
+    const resolved: { url: string; ownerId: number }[] = []
+    let touched = false
+
+    for (const source of sources) {
+      const url = typeof source?.url === 'string' ? source.url : ''
+      const cached = typeof source?.ownerId === 'number' ? source.ownerId : null
+      const target = parseVkTarget(url)
+
+      if (!target) {
+        say(`${label}: ссылка «${url}» не разобрана — пропуск`)
+        continue
       }
-    } catch (err) {
-      say(`${label}: owner_id не определён — ${describeVkError(err)}`)
-      summary.failed += 1
-      continue
+
+      let ownerId: number | null = null
+      try {
+        if (target.kind === 'owner') {
+          // Числовой адрес разбирается локально — вызов шлюза не тратим.
+          ownerId = target.ownerId
+        } else if (cached && cached !== 0) {
+          // Короткое имя уже разрешали — второй раз в шлюз не ходим.
+          ownerId = cached
+        } else {
+          ownerId = await withGatewayRetry(
+            () => resolveOwnerId(target.screenName, gateway),
+            say,
+            label,
+          )
+          await sleep(GATEWAY_PACE_MS)
+        }
+      } catch (err) {
+        say(`${label} (${url}): owner_id не определён — ${describeVkError(err)}`)
+        summary.failed += 1
+        continue
+      }
+
+      if (!ownerId) {
+        say(`${label} (${url}): owner_id не определился — пропуск`)
+        continue
+      }
+
+      resolved.push({ url, ownerId })
+      if (cached !== ownerId) touched = true
+
+      let items: VkWallItem[]
+      try {
+        const wall = await withGatewayRetry(() => wallGet(ownerId, wallCount, gateway), say, label)
+        items = wall.items ?? []
+        await sleep(GATEWAY_PACE_MS)
+      } catch (err) {
+        // Закрытая стена и удалённое сообщество — обычное дело для сельских
+        // групп, а у части учреждений вторая ссылка ведёт на давно брошенную
+        // страницу. Один недоступный источник не должен ронять ни остальные
+        // источники этого же ДК, ни импорт других учреждений.
+        say(`${label} (${url}): стена недоступна — ${describeVkError(err)}`)
+        summary.failed += 1
+        continue
+      }
+
+      const stats = await importWallItems(payload, {
+        institutionId: institution.id,
+        ownerId,
+        label,
+        items,
+        publish,
+        onProblem: (message) => say(`${label}: ${message}`),
+      })
+
+      summary.created += stats.created
+      summary.skipped += stats.skipped
+      summary.failed += stats.failed
+      summary.sources += 1
+
+      say(
+        `${label} (${url}): со стены ${items.length}, создано ${stats.created}, ` +
+          `уже было ${stats.skipped}, с ошибкой ${stats.failed}`,
+      )
     }
 
-    if (!ownerId) {
-      say(`${label}: owner_id не определился — пропуск`)
-      continue
-    }
+    summary.institutions += 1
 
     // Кэшируем owner_id в карточке: следующий прогон обойдётся без
     // resolveScreenName, а редактор видит, чью стену читает импорт.
-    if (institution.vkOwnerId !== ownerId) {
+    if (touched && resolved.length > 0) {
       await payload.update({
         collection: 'institutions',
         id: institution.id,
         context: { disableRevalidate: true },
-        data: { vkOwnerId: ownerId },
+        data: { vkSources: resolved },
       })
     }
-
-    let items: VkWallItem[]
-    try {
-      const wall = await withGatewayRetry(() => wallGet(ownerId, wallCount, gateway), say, label)
-      items = wall.items ?? []
-      await sleep(GATEWAY_PACE_MS)
-    } catch (err) {
-      // Закрытая стена и удалённое сообщество — обычное дело для сельских групп.
-      // Одно такое учреждение не должно останавливать импорт остальных.
-      say(`${label}: стена недоступна — ${describeVkError(err)}`)
-      summary.failed += 1
-      continue
-    }
-
-    const stats = await importWallItems(payload, {
-      institutionId: institution.id,
-      ownerId,
-      label,
-      items,
-      publish,
-      onProblem: (message) => say(`${label}: ${message}`),
-    })
-
-    summary.institutions += 1
-    summary.created += stats.created
-    summary.skipped += stats.skipped
-    summary.failed += stats.failed
-
-    say(
-      `${label}: со стены ${items.length}, создано ${stats.created}, ` +
-        `уже было ${stats.skipped}, с ошибкой ${stats.failed}`,
-    )
   }
 
   return summary

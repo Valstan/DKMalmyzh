@@ -97,8 +97,15 @@ const main = async () => {
   const heads = all.docs.filter((d) => d.isHead)
   if (heads.length !== 1) problems.push(`головных учреждений ${heads.length}, ожидалось 1`)
 
-  const withVk = all.docs.filter((d) => d.vkGroupUrl).length
-  if (withVk !== first.withVk) problems.push(`со ссылкой на ВК ${withVk}, ожидалось ${first.withVk}`)
+  const withVk = all.docs.filter((d) => (d.vkSources ?? []).length > 0).length
+  if (withVk !== first.withVk) problems.push(`со ссылками на ВК ${withVk}, ожидалось ${first.withVk}`)
+
+  // Источников больше, чем учреждений: у РЦКД и пяти сельских ДК их по два.
+  // Проверка ловит потерю второго адреса при записи массива.
+  const sources = all.docs.reduce((n, d) => n + (d.vkSources ?? []).length, 0)
+  if (sources !== first.sources)
+    problems.push(`источников в базе ${sources}, ожидалось ${first.sources}`)
+  if (sources <= withVk) problems.push('ни у одного учреждения не сохранилось двух источников')
 
   if (problems.length > 0) {
     console.error('::error::проверка каталога учреждений не прошла:')
@@ -107,7 +114,8 @@ const main = async () => {
   }
 
   console.log(
-    `каталог ок: ${all.totalDocs} учреждений черновиками, со ссылкой на ВК ${withVk}, ` +
+    `каталог ок: ${all.totalDocs} учреждений черновиками, со ссылками на ВК ${withVk} ` +
+      `(источников ${sources}), ` +
       `требуют решения ${first.needsReview.length}; повторный прогон не создал дублей ` +
       'и не затёр правку редактора',
   )

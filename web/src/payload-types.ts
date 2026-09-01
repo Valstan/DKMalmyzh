@@ -165,13 +165,21 @@ export interface Institution {
   address?: string | null;
   phone?: string | null;
   /**
-   * Полная ссылка вида https://vk.com/example. Показывается на странице и служит источником импорта: пусто — записи из ВК не забираются.
+   * Откуда забираются записи. Одна запись на сообщество или страницу; пусто — учреждение из ВК не импортируется.
    */
-  vkGroupUrl?: string | null;
-  /**
-   * Определяется автоматически по ссылке. Отрицательный — сообщество, положительный — личная страница.
-   */
-  vkOwnerId?: number | null;
+  vkSources?:
+    | {
+        /**
+         * Полная ссылка вида https://vk.com/example.
+         */
+        url: string;
+        /**
+         * Определяется автоматически. Отрицательный — сообщество, положительный — страница.
+         */
+        ownerId?: number | null;
+        id?: string | null;
+      }[]
+    | null;
   /**
    * На раздел головного учреждения ведёт прежний домен домкультуры.вмалмыже.рф.
    */
@@ -446,8 +454,13 @@ export interface InstitutionsSelect<T extends boolean = true> {
   content?: T;
   address?: T;
   phone?: T;
-  vkGroupUrl?: T;
-  vkOwnerId?: T;
+  vkSources?:
+    | T
+    | {
+        url?: T;
+        ownerId?: T;
+        id?: T;
+      };
   isHead?: T;
   slug?: T;
   updatedAt?: T;
