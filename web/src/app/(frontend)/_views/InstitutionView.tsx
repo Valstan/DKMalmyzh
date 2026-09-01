@@ -18,7 +18,7 @@ type InstitutionDoc = {
   content?: unknown
   address?: string | null
   phone?: string | null
-  vkGroupUrl?: string | null
+  vkSources?: { id?: string | null; url?: string | null }[] | null
 }
 
 type PostListItem = {
@@ -82,6 +82,12 @@ export async function InstitutionView({ slug }: { slug: string }) {
   const institution = await getInstitution(decodeURIComponent(slug))
   if (!institution) notFound()
 
+  // У части учреждений сообществ несколько: РЦКД печатает и в группе, и на
+  // личной странице, у пяти сельских ДК рядом с действующей живёт прежняя.
+  const vkLinks = (institution.vkSources ?? [])
+    .map((source) => source?.url)
+    .filter((url): url is string => Boolean(url))
+
   const posts = await getPosts(institution.id)
   const events = posts.filter((post) => post.type === 'event')
   const news = posts.filter((post) => post.type !== 'event')
@@ -97,18 +103,18 @@ export async function InstitutionView({ slug }: { slug: string }) {
 
       <RichText data={institution.content} />
 
-      {institution.address || institution.phone || institution.vkGroupUrl ? (
+      {institution.address || institution.phone || vkLinks.length > 0 ? (
         <section className="institution-block">
           <h2>Контакты</h2>
           {institution.address ? <p>{institution.address}</p> : null}
           {institution.phone ? <p>{institution.phone}</p> : null}
-          {institution.vkGroupUrl ? (
-            <p>
-              <a href={institution.vkGroupUrl} rel="noopener" target="_blank">
-                Сообщество ВКонтакте
+          {vkLinks.map((url, i) => (
+            <p key={url}>
+              <a href={url} rel="noopener" target="_blank">
+                {vkLinks.length > 1 ? `Сообщество ВКонтакте (${i + 1})` : 'Сообщество ВКонтакте'}
               </a>
             </p>
-          ) : null}
+          ))}
         </section>
       ) : null}
 

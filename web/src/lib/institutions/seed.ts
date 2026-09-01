@@ -13,7 +13,10 @@ export type SeedSummary = {
   created: number
   updated: number
   total: number
+  /** Учреждений, у которых есть хотя бы один источник. */
   withVk: number
+  /** Источников суммарно: у части учреждений их несколько. */
+  sources: number
   /** Карточки, требующие решения человека: две страницы ВК, личный профиль и т.п. */
   needsReview: { title: string; note: string }[]
 }
@@ -46,12 +49,21 @@ export async function seedInstitutions(payload: Payload): Promise<SeedSummary> {
     // Заметки сборщика сюда НЕ попадают: `description` — публичное поле, и
     // пометка «у этого ДК две страницы ВК» читалась бы на портале как часть
     // описания учреждения. Они уходят в needsReview.
+    // Карта считается один раз на учреждение, а не на каждую ссылку.
+    const known = bySourceUrl(existing.docs[0])
+
     const data = {
       title: item.title,
       shortTitle: item.shortTitle,
       settlement: item.settlement,
       slug: item.slug,
-      vkGroupUrl: item.vkGroupUrl,
+      // Ссылки перезаписываются справочником, а определённые owner_id — нет:
+      // они кэш синхронизации, и стирать их каждым прогоном значило бы гонять
+      // resolveScreenName по всему району заново, упираясь в квоту шлюза.
+      vkSources: (item.vkSources ?? []).map((url) => ({
+        url,
+        ownerId: known[url],
+      })),
       isHead: Boolean(item.isHead),
     }
 
@@ -77,10 +89,25 @@ export async function seedInstitutions(payload: Payload): Promise<SeedSummary> {
     created,
     updated,
     total: INSTITUTIONS.length,
-    withVk: INSTITUTIONS.filter((i) => i.vkGroupUrl).length,
+    withVk: INSTITUTIONS.filter((i) => (i.vkSources ?? []).length > 0).length,
+    sources: INSTITUTIONS.reduce((n, i) => n + (i.vkSources ?? []).length, 0),
     needsReview: INSTITUTIONS.filter((i) => i.note).map((i) => ({
       title: i.shortTitle,
       note: i.note as string,
     })),
   }
+}
+
+// Уже определённые owner_id по ссылке. Их считает синхронизация, и терять их при
+// обновлении справочника нельзя: каждый потерянный — лишний вызов
+// resolveScreenName у шлюза, а квота там 30 запросов в минуту на весь район.
+function bySourceUrl(doc: { vkSources?: unknown } | undefined): Record<string, number | undefined> {
+  const out: Record<string, number | undefined> = {}
+  const sources = doc?.vkSources
+  if (!Array.isArray(sources)) return out
+  for (const item of sources) {
+    const src = item as { url?: unknown; ownerId?: unknown }
+    if (typeof src?.url === 'string' && typeof src.ownerId === 'number') out[src.url] = src.ownerId
+  }
+  return out
 }

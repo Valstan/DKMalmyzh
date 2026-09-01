@@ -3,6 +3,7 @@ import { getPayload } from 'payload'
 
 import type { VkWallItem } from '../src/lib/vk/api'
 import { importWallItems } from '../src/lib/vk/import'
+import { runVkSync } from '../src/lib/vk/sync'
 
 // Гейт импорта из ВК: прогон ядра на подставных записях, без токена и без сети.
 //
@@ -80,7 +81,7 @@ const main = async () => {
         title: 'CI: дом культуры для проверки импорта',
         slug: 'ci-vk-import',
         shortTitle: 'CI-ВК',
-        vkGroupUrl: 'https://example.invalid/ci',
+        vkSources: [{ url: 'https://example.invalid/ci' }],
         _status: 'published',
       },
     })
@@ -165,6 +166,8 @@ const main = async () => {
     globalThis.fetch = realFetch
   }
 
+  await checkMultiSource(payload, problems)
+
   if (problems.length > 0) {
     console.error('::error::проверка импорта из ВК не прошла:')
     for (const p of problems) console.error(`  - ${p}`)
@@ -173,6 +176,121 @@ const main = async () => {
 
   console.log('импорт из ВК: идемпотентность, обложка с галереей, репост и отбор записей — ок')
   process.exit(0)
+}
+
+// Обход НЕСКОЛЬКИХ источников у одного учреждения — то, ради чего модель
+// перестала быть «одна ссылка на дом культуры»: РЦКД печатает и в группе, и на
+// личной странице, а у пяти сельских ДК рядом с действующей страницей живёт
+// прежняя. Проверяется на подменённом шлюзе: сети и ключа тут нет.
+async function checkMultiSource(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  problems: string[],
+): Promise<void> {
+  const OK_A = -900000011
+  const OK_B = -900000012
+  const BROKEN = -900000013
+
+  const walls: Record<number, VkWallItem[]> = {
+    [OK_A]: [{ id: 1, date: 1767225600, text: 'Из группы' }],
+    [OK_B]: [{ id: 2, date: 1767312000, text: 'С личной страницы' }],
+  }
+
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input)
+    if (!url.includes('/api/gateway/call')) {
+      return new Response(Buffer.from(PNG_BASE64, 'base64'), {
+        status: 200,
+        headers: { 'content-type': 'image/png' },
+      })
+    }
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      method?: string
+      params?: { owner_id?: number; screen_name?: string }
+    }
+    if (body.method === 'utils.resolveScreenName') {
+      return json({ ok: true, response: { type: 'group', object_id: -OK_B } })
+    }
+    const owner = body.params?.owner_id ?? 0
+    // Одна из стен «закрыта»: доменная ошибка ВК приезжает с HTTP 200 и
+    // ok: false — ровно так, как её отдаёт настоящий шлюз.
+    if (owner === BROKEN) {
+      return json({ ok: false, error: { error_code: 15, error_msg: 'Access denied' } })
+    }
+    return json({ ok: true, response: { count: walls[owner]?.length ?? 0, items: walls[owner] ?? [] } })
+  }) as typeof globalThis.fetch
+
+  try {
+    await payload.create({
+      collection: 'institutions',
+      context: ctx,
+      data: {
+        title: 'CI: дом культуры с несколькими источниками',
+        slug: 'ci-multi',
+        shortTitle: 'CI-мульти',
+        vkSources: [
+          // числовой адрес — разбирается локально, шлюз не дёргается
+          { url: `https://vk.com/club${Math.abs(OK_A)}` },
+          // короткое имя — уходит в resolveScreenName, owner_id должен осесть в карточке
+          { url: 'https://vk.com/ci_short_name' },
+          // заведомо недоступная стена: не должна ронять остальные
+          { url: `https://vk.com/club${Math.abs(BROKEN)}` },
+        ],
+        _status: 'published',
+      },
+    })
+
+    const summary = await runVkSync(payload, {
+      gateway: { url: 'https://gateway.invalid', key: 'not-a-real-key' },
+      publish: true,
+      wallCount: 10,
+      onlySlug: 'ci-multi',
+    })
+
+    console.log(
+      `мультиисточник: стен прочитано ${summary.sources}, создано ${summary.created}, ` +
+        `с ошибкой ${summary.failed}`,
+    )
+
+    if (summary.sources !== 2)
+      problems.push(`прочитано стен ${summary.sources}, ожидалось 2 (третья закрыта)`)
+    if (summary.created !== 2)
+      problems.push(`создано ${summary.created} записей, ожидалось 2 — по одной с каждой стены`)
+    if (summary.failed !== 1)
+      problems.push(`ошибок ${summary.failed}, ожидалась 1 (закрытая стена)`)
+
+    const card = await payload.find({
+      collection: 'institutions',
+      where: { slug: { equals: 'ci-multi' } },
+      depth: 0,
+      limit: 1,
+      draft: true,
+    })
+    const sources = card.docs[0]?.vkSources ?? []
+    const resolved = sources.find((s) => s.url === 'https://vk.com/ci_short_name')
+    if (resolved?.ownerId !== OK_B)
+      problems.push(`owner_id короткого имени не закэширован (${resolved?.ownerId})`)
+
+    // Обе стены дали записи одному и тому же учреждению — это и есть смысл
+    // нескольких источников.
+    const posts = await payload.find({
+      collection: 'posts',
+      where: { institution: { equals: card.docs[0]?.id } },
+      depth: 0,
+      limit: 10,
+    })
+    if (posts.totalDocs !== 2)
+      problems.push(`у учреждения ${posts.totalDocs} записей, ожидалось 2 из двух источников`)
+  } finally {
+    globalThis.fetch = realFetch
+  }
+}
+
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
 }
 
 await main()
