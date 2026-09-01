@@ -11,7 +11,7 @@
 # держать нельзя — VK привязывает его к IP выпуска, и раздача credential
 # технически не работает. Нужны SARAFAN_GATEWAY_URL и SARAFAN_GATEWAY_KEY.
 #
-# Секреты (ключ шлюза, VK_SYNC_SECRET) берутся из того же EnvironmentFile, что и
+# Секреты (ключ шлюза, INTERNAL_OPS_SECRET) берутся из того же EnvironmentFile, что и
 # остальные значения сайта. В репозитории их нет.
 Description=Импорт записей из ВКонтакте для портала культуры Малмыжского района
 After=network-online.target dkmalmyzh.service
@@ -28,7 +28,7 @@ EnvironmentFile=/etc/dkmalmyzh/dkmalmyzh.env
 # должен наложиться на следующий по таймеру.
 ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 900 \
     -X POST \
-    -H "x-sync-secret: ${VK_SYNC_SECRET}" \
+    -H "x-internal-secret: ${INTERNAL_OPS_SECRET}" \
     http://127.0.0.1:3005/internal/vk-sync
 
 TimeoutStartSec=960

@@ -248,13 +248,13 @@ jobs:
           # `|| true` обязателен: под `set -e` неудачный grep (переменной нет —
           # штатный случай) уронил бы весь шаг деплоя.
           sudo grep -q '^SARAFAN_GATEWAY_KEY=.' /etc/dkmalmyzh/dkmalmyzh.env && have_token=1 || true
-          sudo grep -q '^VK_SYNC_SECRET=.' /etc/dkmalmyzh/dkmalmyzh.env && have_secret=1 || true
+          sudo grep -q '^INTERNAL_OPS_SECRET=.' /etc/dkmalmyzh/dkmalmyzh.env && have_secret=1 || true
           if [ "$have_token" = "1" ] && [ "$have_secret" = "1" ]; then
             sudo systemctl enable --now dkmalmyzh-vk-sync.timer
             echo "таймер импорта из ВК включён: $(systemctl is-active dkmalmyzh-vk-sync.timer)"
           else
             sudo systemctl disable --now dkmalmyzh-vk-sync.timer 2>/dev/null || true
-            echo "SARAFAN_GATEWAY_KEY и/или VK_SYNC_SECRET не заданы — таймер импорта выключен"
+            echo "SARAFAN_GATEWAY_KEY и/или INTERNAL_OPS_SECRET не заданы — таймер импорта выключен"
           fi
           REMOTE
 

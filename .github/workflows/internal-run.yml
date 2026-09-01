@@ -1,0 +1,99 @@
+name: Служебная операция на проде (manual)
+
+# Ручной запуск служебных операций портала: заведение каталога домов культуры и
+# импорт из ВК.
+#
+# Почему через SSH и curl, а не отдельной командой на боксе: обе операции живут
+# внутри работающего приложения (`/internal/*`), потому что на прод едет
+# standalone-бандл без payload CLI, а писать надо в прод-БД и в постоянный
+# каталог Media. Наружу эти маршруты закрыты `deny` в nginx, поэтому дёргать их
+# можно только с самого бокса — SSH-доступ для этого уже есть у деплоя.
+#
+# Секрет НЕ передаётся из Actions: он читается на боксе из env-файла. Так
+# значение не появляется ни в inputs, ни в логе прогона (лог публичный, D-038).
+#
+# Требует те же доступы, что deploy-prod.yml:
+#   secrets.SSH_PRIVATE_KEY, secrets.DEPLOY_SSH_HOST, vars.DEPLOY_SSH_PORT
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: 'Что запустить'
+        required: true
+        default: seed-institutions
+        type: choice
+        options:
+          - seed-institutions
+          - vk-sync
+      slug:
+        description: 'Только одно учреждение (slug); пусто — все. Работает для vk-sync'
+        required: false
+        type: string
+
+concurrency:
+  group: prod-internal-ops
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+        run: |
+          set -e
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_PORT" ]; then
+            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / secrets.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_dkmalmyzh
+          chmod 600 ~/.ssh/id_ed25519_dkmalmyzh
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          cat > ~/.ssh/config <<CFG
+          Host dkmalmyzh
+            HostName $DEPLOY_SSH_HOST
+            Port $DEPLOY_SSH_PORT
+            User valstan
+            IdentityFile ~/.ssh/id_ed25519_dkmalmyzh
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Запустить операцию
+        run: |
+          set -e
+          ssh dkmalmyzh 'bash -s' "${{ inputs.operation }}" "${{ inputs.slug }}" <<'REMOTE'
+          set -euo pipefail
+          OP="$1"
+          SLUG="${2:-}"
+
+          SECRET=$(sudo grep '^INTERNAL_OPS_SECRET=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^INTERNAL_OPS_SECRET=//;s/^"//;s/"$//')
+          if [ -z "$SECRET" ]; then
+            echo "::error::INTERNAL_OPS_SECRET не задан в env-файле прода — служебные маршруты выключены"
+            exit 1
+          fi
+
+          URL="http://127.0.0.1:3005/internal/$OP"
+          if [ -n "$SLUG" ]; then URL="$URL?slug=$SLUG"; fi
+          echo "запускаю $OP"
+
+          # -o в файл, а не в stdout: ответ печатаем сами, отдельной командой,
+          # чтобы код возврата curl не потерялся в конвейере.
+          code=$(curl -sS -o /tmp/internal-op.json -w '%{http_code}' --max-time 1200 \
+                 -X POST -H "x-internal-secret: $SECRET" "$URL" || echo 000)
+
+          echo "HTTP $code"
+          # Секрет в ответе не фигурирует — печатать тело безопасно.
+          cat /tmp/internal-op.json; echo
+          rm -f /tmp/internal-op.json
+
+          [ "$code" = "200" ] || { echo "::error::операция $OP вернула $code"; exit 1; }
+          REMOTE
