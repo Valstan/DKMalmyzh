@@ -88,7 +88,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
 
   return (
     <article>
-      <p className="eyebrow">
+      <p className="eyebrow eyebrow--crumbs">
         <Link href="/dk">Дома культуры района</Link>
         {institution.settlement ? ` · ${institution.settlement}` : ''}
       </p>
@@ -98,7 +98,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
       <RichText data={institution.content} />
 
       {institution.address || institution.phone || institution.vkGroupUrl ? (
-        <section className="contacts-section ornate-frame">
+        <section className="institution-block">
           <h2>Контакты</h2>
           {institution.address ? <p>{institution.address}</p> : null}
           {institution.phone ? <p>{institution.phone}</p> : null}
@@ -113,19 +113,15 @@ export async function InstitutionView({ slug }: { slug: string }) {
       ) : null}
 
       {events.length > 0 ? (
-        <section className="news-section paint-frame">
-          <div className="section-heading section-heading--left">
-            <p className="eyebrow">Не пропустите</p>
-            <h2>Афиша</h2>
-          </div>
+        <section className="institution-block">
+          <p className="eyebrow">Не пропустите</p>
+          <h2>Афиша</h2>
           <PostList posts={events} />
         </section>
       ) : null}
 
-      <section className="news-section paint-frame">
-        <div className="section-heading section-heading--left">
-          <h2>Новости</h2>
-        </div>
+      <section className="institution-block">
+        <h2>Новости</h2>
         {news.length === 0 ? (
           <p className="muted">Пока нет новостей.</p>
         ) : (

@@ -713,3 +713,30 @@ p {
   height: auto;
   border-radius: 12px;
 }
+
+/* Страница дома культуры — внутренняя, а не витрина. Декоративные рамки главной
+   (.ornate-frame / .paint-frame) сюда не годятся: у них margin-block до 6rem, и
+   три секции подряд рвали страницу пустотами. Разделяем блоки линией. */
+.institution-block {
+  margin-top: 2.5rem;
+  padding-top: 2rem;
+  border-top: 3px solid var(--violet);
+}
+
+.institution-block > h2 {
+  margin: 0 0 1rem;
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  letter-spacing: -0.02em;
+}
+
+.institution-block > .eyebrow {
+  margin-bottom: 0.2rem;
+}
+
+.institution-block p {
+  margin: 0.3rem 0;
+}
+
+.eyebrow--crumbs {
+  margin-bottom: 0.6rem;
+}
