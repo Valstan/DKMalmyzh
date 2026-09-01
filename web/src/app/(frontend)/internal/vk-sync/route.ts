@@ -1,7 +1,7 @@
-import { timingSafeEqual } from 'crypto'
 import config from '@payload-config'
 import { getPayload } from 'payload'
 
+import { guardInternal } from '../../../../lib/internal/auth'
 import { readGatewayConfig } from '../../../../lib/vk/api'
 import { runVkSync } from '../../../../lib/vk/sync'
 
@@ -13,9 +13,8 @@ import { runVkSync } from '../../../../lib/vk/sync'
 // дёрнуть его локальным запросом, чем везти на бокс второй рантайм.
 //
 // Дёргает таймер systemd (deploy/dkmalmyzh-vk-sync.timer) запросом на
-// 127.0.0.1:3005. Наружу маршрут закрыт дважды: секретом ниже и `deny` в
-// nginx-vhost — одного секрета мало, потому что публично доступный запускатор
-// долгой задачи это ещё и способ нагрузить единственный vCPU.
+// 127.0.0.1:3005; вручную — воркфлоу `internal-run.yml`. Охрана общая с
+// остальными `/internal/*` — см. lib/internal/auth.ts.
 
 export const dynamic = 'force-dynamic'
 export const revalidate = 0
@@ -27,27 +26,9 @@ const WALL_COUNT = Number(process.env.VK_SYNC_COUNT || 20)
 // убедится в качестве выборки.
 const PUBLISH = process.env.VK_SYNC_PUBLISH === '1'
 
-// Сравнение постоянного времени: наивное `===` на секрете даёт побайтовую утечку
-// через время ответа, а маршрут доступен без аутентификации по определению.
-function secretMatches(given: string | null, expected: string): boolean {
-  if (!given) return false
-  const a = Buffer.from(given)
-  const b = Buffer.from(expected)
-  if (a.length !== b.length) return false
-  return timingSafeEqual(a, b)
-}
-
 export async function POST(request: Request): Promise<Response> {
-  const expected = process.env.VK_SYNC_SECRET?.trim()
-
-  // Незаданный секрет НЕ означает «пускать всех»: без него маршрут выключен.
-  if (!expected) {
-    return Response.json({ error: 'синхронизация не настроена' }, { status: 503 })
-  }
-
-  if (!secretMatches(request.headers.get('x-sync-secret'), expected)) {
-    return Response.json({ error: 'нет доступа' }, { status: 403 })
-  }
+  const denied = guardInternal(request, 'импорт из ВК')
+  if (denied) return denied.response
 
   // Ходим в ВК только через шлюз SARAFAN (pool #062) — прямых токенов у нас нет
   // и быть не должно. Нет адреса или ключа шлюза — импорт выключен.
