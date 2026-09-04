@@ -68,6 +68,10 @@ async function call<T>(method: string, params: Params, cfg: GatewayConfig): Prom
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-api-key': cfg.key },
     body: JSON.stringify({ method, params }),
+    // Без дедлайна зависшее соединение держит прогон бесконечно: клиент (curl
+    // юнита) давно ушёл по --max-time, а обработчик продолжает работать и
+    // держит замок служебных операций — импорт встаёт молча.
+    signal: AbortSignal.timeout(GATEWAY_TIMEOUT_MS),
   })
 
   if (res.status === 429) {
@@ -125,3 +129,6 @@ export async function wallGet(
 // расчёт под прямой VK API — упирались бы в 429 уже на первом десятке
 // учреждений, и стены оставшихся выглядели бы пустыми.
 export const GATEWAY_PACE_MS = Number(process.env.SARAFAN_PACE_MS || 2100)
+
+/** Дедлайн одного обращения к шлюзу. Шлюз соседний, но канал общий. */
+export const GATEWAY_TIMEOUT_MS = Number(process.env.SARAFAN_TIMEOUT_MS || 30000)

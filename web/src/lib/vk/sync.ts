@@ -93,7 +93,12 @@ export async function runVkSync(payload: Payload, options: SyncOptions): Promise
     // owner_id, определённые за этот прогон, складываем и записываем в карточку
     // ОДНИМ обновлением: по обновлению на источник плодило бы версии документа
     // на каждый прогон таймера.
-    const resolved: { url: string; ownerId: number }[] = []
+    // Карта «ссылка -> определённый owner_id». Именно карта, а не список
+    // успешных: список подменял бы весь массив источников, и ссылка, которую в
+    // этот прогон не удалось разрезолвить (429 шлюза, переименованное
+    // сообщество, неразобранный адрес), ИСЧЕЗАЛА бы из карточки учреждения
+    // насовсем. Источники — данные владельца, импорт их не редактирует.
+    const resolvedIds = new Map<string, number>()
     let touched = false
 
     for (const source of sources) {
@@ -133,7 +138,7 @@ export async function runVkSync(payload: Payload, options: SyncOptions): Promise
         continue
       }
 
-      resolved.push({ url, ownerId })
+      resolvedIds.set(url, ownerId)
       if (cached !== ownerId) touched = true
 
       let items: VkWallItem[]
@@ -175,12 +180,21 @@ export async function runVkSync(payload: Payload, options: SyncOptions): Promise
 
     // Кэшируем owner_id в карточке: следующий прогон обойдётся без
     // resolveScreenName, а редактор видит, чью стену читает импорт.
-    if (touched && resolved.length > 0) {
+    if (touched && resolvedIds.size > 0) {
+      // Обходим ИСХОДНЫЙ список: каждый источник остаётся на месте, меняется
+      // только кэш owner_id и только там, где он определился.
+      const nextSources = sources.map((source) => {
+        const url = typeof source?.url === 'string' ? source.url : ''
+        const known = resolvedIds.get(url)
+        const previous = typeof source?.ownerId === 'number' ? source.ownerId : undefined
+        return { url, ownerId: known ?? previous }
+      })
+
       await payload.update({
         collection: 'institutions',
         id: institution.id,
         context: { disableRevalidate: true },
-        data: { vkSources: resolved },
+        data: { vkSources: nextSources },
       })
     }
   }
