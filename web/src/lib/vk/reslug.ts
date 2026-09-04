@@ -47,15 +47,19 @@ export async function reslugVkPosts(
     log?.(message)
   }
 
-  // Черновики тоже нужны — на проде сейчас все записи черновики, и именно их
-  // адреса и надо развести до публикации.
+  // Читаем ОСНОВНЫЕ записи, без `draft: true`.
+  //
+  // С `draft: true` Payload отдаёт последнюю версию из `_posts_v`, а адрес,
+  // по которому открывается страница и который видит SQL-проба, лежит в
+  // `posts.slug`. Первый прогон операции читал версии, видел в них уже
+  // исправленные адреса и отвечал «без изменений 636», пока в самой таблице
+  // оставались те же 49 дублей. Источник правды здесь — основная запись.
   const found = await payload.find({
     collection: 'posts',
     where: { source: { equals: 'vk' } },
     depth: 0,
     limit: 0,
     pagination: false,
-    draft: true,
   })
 
   const rows = found.docs as PostRow[]
@@ -67,7 +71,6 @@ export async function reslugVkPosts(
     depth: 0,
     limit: 0,
     pagination: false,
-    draft: true,
   })
   for (const doc of all.docs as PostRow[]) {
     if (typeof doc.slug === 'string' && doc.slug) taken.add(doc.slug)
