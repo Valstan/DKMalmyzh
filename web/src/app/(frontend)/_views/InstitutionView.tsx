@@ -8,11 +8,13 @@ import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { formatPostDate } from '../../../lib/format'
+import { SectionTheme, themeOf } from '../components/SectionTheme'
 
 type InstitutionDoc = {
   id: string | number
   title?: string | null
   shortTitle?: string | null
+  theme?: string | null
   settlement?: string | null
   description?: string | null
   content?: unknown
@@ -95,6 +97,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
   const news = posts.filter((post) => post.type !== 'event')
 
   return (
+    <SectionTheme theme={themeOf(institution)}>
     <article>
       <p className="eyebrow eyebrow--crumbs">
         <Link href="/dk">Дома культуры района</Link>
@@ -137,6 +140,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
         )}
       </section>
     </article>
+    </SectionTheme>
   )
 }
 

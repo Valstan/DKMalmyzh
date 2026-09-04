@@ -1,0 +1,98 @@
+name: Сгенерировать миграцию Payload (manual)
+
+# `payload migrate:create` на раннере с эфемерным Postgres: на dev-машине нет ни
+# Postgres, ни Docker, а миграцию надо ГЕНЕРИРОВАТЬ, а не писать руками — ручная
+# транскрипция и есть шаг, на котором теряются version_*-колонки (G231).
+#
+# Как пользоваться: dispatch с ветки, где изменён конфиг коллекций → артефакт
+# `migration` с тройкой файлов (.ts, .sql, .json) → скачать, положить в
+# web/src/migrations, зарегистрировать в index.ts, ПРОЧИТАТЬ down() ГЛАЗАМИ (G192)
+# и закоммитить. .sql извлечён из тела up() автоматически, не переписан.
+#
+# Снапшот .json генерируется относительно предыдущего снапшота в репозитории,
+# поэтому файл — инкремент, а не полная схема. Перед генерацией на эфемерную БД
+# накатываются существующие .sql прод-путём — тогда «No schema changes detected»
+# означает, что генерировать нечего, и шаг падает вместо пустого артефакта.
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Имя миграции (латиницей, snake_case)'
+        required: true
+        default: 'kalinino'
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dkmalmyzh_mig
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: web
+    env:
+      DATABASE_URI: postgresql://postgres:postgres@localhost:5432/dkmalmyzh_mig
+      PAYLOAD_DB_PUSH: 'false'
+      PAYLOAD_SECRET: ci-migrate-only-secret-not-used-at-runtime
+      NAME: ${{ inputs.name }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Enable corepack + pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm generate:importmap
+
+      - name: Накатить существующие миграции (прод-путь)
+        run: |
+          set -euo pipefail
+          for f in src/migrations/*.sql; do
+            NAME_SQL=$(basename "$f" .sql)
+            psql "$DATABASE_URI" -v ON_ERROR_STOP=1 -q -f "$f"
+            psql "$DATABASE_URI" -q -c "INSERT INTO payload_migrations (name, batch) VALUES ('$NAME_SQL', 1);"
+          done
+
+      - name: migrate:create
+        run: |
+          set -euo pipefail
+          printf '%s' "$NAME" | grep -qE '^[a-z0-9_]{1,40}$' || { echo "::error::имя — латиница/цифры/подчёркивание"; exit 1; }
+          BEFORE=$(ls src/migrations/*.ts | wc -l)
+          pnpm migrate:create "$NAME" --force-accept-warning 2>&1 | tee /tmp/create.log
+          if grep -q "No schema changes detected" /tmp/create.log; then
+            echo "::error::схема не изменилась — генерировать нечего"; exit 1
+          fi
+          AFTER=$(ls src/migrations/*.ts | wc -l)
+          [ "$AFTER" -gt "$BEFORE" ] || { echo "::error::файл миграции не появился"; exit 1; }
+          NEW=$(ls -t src/migrations/*_"$NAME".ts | head -1)
+          BASE="${NEW%.ts}"
+          echo "новая миграция: $(basename "$BASE")"
+          # .sql — тело up() между db.execute(sql` и `) : тот же способ, что у
+          # прежних миграций репозитория.
+          awk '/export async function up/{f=1;next} f&&/db\.execute\(sql`/{s=1;sub(/.*db\.execute\(sql`/,"");} s{ if ($0 ~ /`\)/) { sub(/`\).*/,""); print; exit } print }' "$NEW" > "$BASE.sql"
+          echo "== .sql =="; cat "$BASE.sql"
+          echo "== down() — читать глазами =="; sed -n '/export async function down/,$p' "$NEW"
+          mkdir -p /tmp/out && cp "$BASE.ts" "$BASE.sql" "$BASE.json" /tmp/out/
+          ls -la /tmp/out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: migration
+          path: /tmp/out/
+          retention-days: 3

@@ -11,6 +11,9 @@
   handover-shape.py <файл>            — структура: ключи, типы, счётчики
   handover-shape.py --count <файл>    — только число записей, с падением на
                                         нераспознанной форме
+  handover-shape.py --posts <файл>    — сводка posts.json для плана переноса
+                                        (D-074): статусы, рубрики, видео,
+                                        sourceUrl, повторы slug — без текстов
 """
 
 import json
@@ -78,11 +81,52 @@ def count_records(data):
     return None
 
 
+def posts_summary(posts):
+    """Числа, от которых зависят условия Мозга к переносу: что потеряется без
+    полей videos/sourceUrl и сколько адресов повторяется. Slug'и печатаются
+    только для повторов — это адреса, а не тексты."""
+    if not isinstance(posts, list):
+        print('posts.json: ожидался список')
+        return 1
+    status = {}
+    cats = {}
+    with_videos = videos_total = with_source = with_cover = gallery_total = 0
+    slugs = {}
+    for p in posts:
+        status[p.get('status')] = status.get(p.get('status'), 0) + 1
+        cat = p.get('categorySlug') or '(нет)'
+        cats[cat] = cats.get(cat, 0) + 1
+        v = p.get('videos') or []
+        if v:
+            with_videos += 1
+            videos_total += len(v)
+        if p.get('sourceUrl'):
+            with_source += 1
+        if p.get('coverFilename'):
+            with_cover += 1
+        gallery_total += len(p.get('gallery') or [])
+        slugs.setdefault(p.get('slug'), []).append(p.get('vkPostId'))
+    print('  записей: %d, по статусу: %s' % (len(posts), status))
+    print('  рубрики: %s' % cats)
+    print('  видео: у %d записей, всего %d' % (with_videos, videos_total))
+    print('  sourceUrl: есть у %d, нет у %d' % (with_source, len(posts) - with_source))
+    print('  обложка у %d, файлов галереи %d' % (with_cover, gallery_total))
+    dups = {k: v for k, v in slugs.items() if len(v) > 1}
+    print('  повторов slug внутри выгрузки: %d' % len(dups))
+    for k in sorted(dups):
+        print('    %s: %s' % (k, ', '.join(str(x) for x in dups[k])))
+    return 0
+
+
 def main():
     args = sys.argv[1:]
     count_only = False
+    posts_mode = False
     if args and args[0] == '--count':
         count_only = True
+        args = args[1:]
+    elif args and args[0] == '--posts':
+        posts_mode = True
         args = args[1:]
     if not args:
         print('нужен путь к json-файлу', file=sys.stderr)
@@ -93,6 +137,9 @@ def main():
     # выглядит как результат.
     with open(path, encoding='utf-8') as handle:
         data = json.load(handle)
+
+    if posts_mode:
+        return posts_summary(data)
 
     if count_only:
         n = count_records(data)

@@ -27,12 +27,18 @@ on:
           - seed-institutions
           - vk-sync
           - reslug-vk
+          - kalinino-transfer
       slug:
         description: 'Только одно учреждение (slug); пусто — все. Работает для vk-sync'
         required: false
         type: string
       dry_run:
-        description: 'Только показать план, ничего не менять (reslug-vk)'
+        description: 'Только показать план, ничего не менять (reslug-vk, kalinino-transfer)'
+        required: false
+        default: false
+        type: boolean
+      skip_count_check:
+        description: 'kalinino-transfer: не сверять число записей выгрузки с живым сайтом Калинино'
         required: false
         default: false
         type: boolean
@@ -85,12 +91,14 @@ jobs:
           OPERATION: ${{ inputs.operation }}
           SLUG: ${{ inputs.slug }}
           DRY_RUN: ${{ inputs.dry_run }}
+          SKIP_COUNT: ${{ inputs.skip_count_check }}
         run: |
           set -e
           case "$OPERATION" in
-            seed-institutions|vk-sync|reslug-vk) ;;
+            seed-institutions|vk-sync|reslug-vk|kalinino-transfer) ;;
             *) echo "::error::неизвестная операция"; exit 1 ;;
           esac
+          case "$SKIP_COUNT" in true|false|'') ;; *) echo "::error::skip_count_check — только true/false"; exit 1 ;; esac
           if [ -n "$SLUG" ] && ! printf '%s' "$SLUG" | grep -qE '^[a-z0-9-]{1,64}$'; then
             echo "::error::slug должен быть строчными латинскими буквами, цифрами и дефисом"
             exit 1
@@ -105,11 +113,12 @@ jobs:
           # slug, а dry остался пустым — операция отработала боевым прогоном,
           # отрапортовав `dryRun: false`. Подстановка безопасна: значения выше
           # проверены по белому списку и форме.
-          ssh dkmalmyzh "OP='$OPERATION' SLUG='$SLUG' DRY='${DRY_RUN:-false}' bash -s" <<'REMOTE'
+          ssh dkmalmyzh "OP='$OPERATION' SLUG='$SLUG' DRY='${DRY_RUN:-false}' SKIP_COUNT='${SKIP_COUNT:-false}' bash -s" <<'REMOTE'
           set -euo pipefail
           OP="${OP:?операция не передана}"
           SLUG="${SLUG:-}"
           DRY="${DRY:-false}"
+          SKIP_COUNT="${SKIP_COUNT:-false}"
 
           SECRET=$(sudo grep '^INTERNAL_OPS_SECRET=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^INTERNAL_OPS_SECRET=//;s/^"//;s/"$//')
           if [ -z "$SECRET" ]; then
@@ -119,6 +128,37 @@ jobs:
 
           URL="http://127.0.0.1:3005/internal/$OP"
           if [ -n "$SLUG" ]; then URL="$URL?slug=$SLUG"; fi
+
+          # Перенос Калинино (D-074): каталог выгрузки ищется на боксе по маске и
+          # в лог не печатается (D-038); архив медиа распаковывается один раз,
+          # рядом с выгрузкой, под nice — vCPU один и посетитель важнее.
+          if [ "$OP" = "kalinino-transfer" ]; then
+            DIR=$(ls -1d "$HOME"/kalinino/handover-* 2>/dev/null | sort | tail -1 || true)
+            [ -n "$DIR" ] || { echo "::error::каталог выгрузки Калинино не найден"; exit 1; }
+            [ -f "$DIR/posts.json" ] || { echo "::error::в выгрузке нет posts.json"; exit 1; }
+            echo "выгрузка: $(basename "$DIR")"
+            if [ ! -d "$DIR/media" ]; then
+              [ -f "$DIR/media.tar.gz" ] || { echo "::error::нет ни media/, ни media.tar.gz"; exit 1; }
+              echo "распаковываю media.tar.gz под nice"
+              nice -n 19 ionice -c3 tar xzf "$DIR/media.tar.gz" -C "$DIR"
+            fi
+            echo "файлов в media/: $(find "$DIR/media" -type f | wc -l)"
+
+            # Сверка со снимком: у Калинино автоимпорт продолжает работать, и
+            # выгрузка 08:45 могла отстать. Считаем ПУБЛИЧНЫЙ API их сайта на этом
+            # же боксе (только опубликованные) против published в posts.json.
+            # Расхождение — стоп: свежий снимок просят через Мозга одной строкой.
+            SNAP=$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(sum(1 for p in d if p.get("status")=="published"))' "$DIR/posts.json")
+            KAL=xn----8sbksaibjtblz.xn--80adkdyec4j.xn--p1ai
+            LIVE=$(curl -sk --resolve "$KAL:443:127.0.0.1" --max-time 20 "https://$KAL/api/posts?limit=1&depth=0" \
+                   | python3 -c 'import json,sys; print(json.load(sys.stdin).get("totalDocs","?"))' 2>/dev/null || echo "?")
+            echo "опубликовано: в выгрузке $SNAP, на живом сайте Калинино $LIVE"
+            if [ "$SKIP_COUNT" != "true" ] && [ "$SNAP" != "$LIVE" ]; then
+              echo "::error::выгрузка отстала от живого сайта (или сайт уже выключен) — нужен свежий снимок либо skip_count_check"
+              exit 1
+            fi
+            URL="$URL?dir=$DIR"
+          fi
           if [ "$DRY" = "true" ]; then
             case "$URL" in *\?*) URL="$URL&dry=1" ;; *) URL="$URL?dry=1" ;; esac
           fi
@@ -130,9 +170,17 @@ jobs:
                  -X POST -H "x-internal-secret: $SECRET" "$URL" || echo 000)
 
           echo "HTTP $code"
-          # Секрет в ответе не фигурирует — печатать тело безопасно.
-          cat /tmp/internal-op.json; echo
+          # Секрет в ответе не фигурирует — печатать тело безопасно; каталог
+          # выгрузки маршрут называет по basename, домашний путь режем на всякий.
+          sed -E 's#/home/[^/[:space:]"]+#~#g' /tmp/internal-op.json; echo
           rm -f /tmp/internal-op.json
+
+          # Заблокированный перенос (коллизии адресов) — 409 с отчётом: это отказ
+          # по данным, который надо прочитать, а не повторить.
+          if [ "$OP" = "kalinino-transfer" ] && [ "$code" = "409" ]; then
+            echo "::error::перенос не начат — см. collisions в ответе выше"
+            exit 1
+          fi
 
           # 409 — не отказ, а честный ответ «уже идёт»: маршрут держит замок, и
           # ручной запуск поверх таймера отвергается по построению. Красить прогон

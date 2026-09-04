@@ -181,6 +181,10 @@ export interface Institution {
       }[]
     | null;
   /**
+   * Пусто — общий вид портала.
+   */
+  theme?: 'kalinino' | null;
+  /**
    * На раздел головного учреждения ведёт прежний домен домкультуры.вмалмыже.рф.
    */
   isHead?: boolean | null;
@@ -300,6 +304,16 @@ export interface Post {
         id?: string | null;
       }[]
     | null;
+  /**
+   * mp4 — встроенный плеер, ссылка на плеер ВК — встраиваемый кадр, прочее — ссылка.
+   */
+  videos?:
+    | {
+        title?: string | null;
+        url: string;
+        id?: string | null;
+      }[]
+    | null;
   content?: {
     root: {
       type: string;
@@ -320,6 +334,10 @@ export interface Post {
    * Служебное: owner_post. По нему синхронизация узнаёт уже импортированное.
    */
   vkUid?: string | null;
+  /**
+   * Служебное: адрес исходной записи (ВКонтакте).
+   */
+  sourceUrl?: string | null;
   source: 'manual' | 'vk';
   /**
    * Заполняется автоматически из заголовка. Можно переопределить вручную.
@@ -461,6 +479,7 @@ export interface InstitutionsSelect<T extends boolean = true> {
         ownerId?: T;
         id?: T;
       };
+  theme?: T;
   isHead?: T;
   slug?: T;
   updatedAt?: T;
@@ -498,9 +517,17 @@ export interface PostsSelect<T extends boolean = true> {
         image?: T;
         id?: T;
       };
+  videos?:
+    | T
+    | {
+        title?: T;
+        url?: T;
+        id?: T;
+      };
   content?: T;
   publishedAt?: T;
   vkUid?: T;
+  sourceUrl?: T;
   source?: T;
   slug?: T;
   updatedAt?: T;

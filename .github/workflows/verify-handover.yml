@@ -110,6 +110,13 @@ jobs:
           count_json categories.json
           count_json media.json
 
+          # Сводка для плана переноса (D-074): что потеряется без полей
+          # videos/sourceUrl и сколько адресов повторяется. Без текстов.
+          if [ -f "$DIR/posts.json" ]; then
+            echo "posts.json — сводка:"
+            python3 /tmp/handover-shape.py --posts "$DIR/posts.json" || echo "  (сводку собрать не удалось)"
+          fi
+
           MAN="$DIR/media-manifest.tsv"
           if [ -f "$MAN" ]; then
             total=$(wc -l < "$MAN")

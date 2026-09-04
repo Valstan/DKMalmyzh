@@ -65,6 +65,9 @@ export async function seedInstitutions(payload: Payload): Promise<SeedSummary> {
         ownerId: known[url],
       })),
       isHead: Boolean(item.isHead),
+      // Тема задаётся справочником, как и isHead: это решение о лице раздела,
+      // а не правка редактора. Пусто в справочнике — общий вид.
+      theme: item.theme ?? null,
     }
 
     if (existing.docs[0]) {
