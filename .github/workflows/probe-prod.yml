@@ -74,10 +74,18 @@ jobs:
           [ "$LINES" -ge 1 ] && [ "$LINES" -le 500 ] || {
             echo "::error::journal_lines вне диапазона 1..500"; exit 1
           }
+          # Правила по ФОРМЕ, а не только по известному значению: журнал печатает
+          # то, чего в secrets нет. Стартовый баннер Next standalone выводит
+          # «- Network: http://<IP бокса>:3005», ошибка psql пишет хост и порт
+          # прозой без схемы postgres://, а маска secrets ловит лишь точное
+          # совпадение со значением.
           redact() {
             sed -E -e 's#(postgres(ql)?://)[^[:space:]]*#\1<redacted>#g' \
                    -e "s#${DEPLOY_SSH_HOST}#<host>#g" \
-                   -e 's#/home/[^/[:space:]]+#/home/<user>#g'
+                   -e 's#/home/[^/[:space:]]+#/home/<user>#g' \
+                   -e 's#([0-9]{1,3}\.){3}[0-9]{1,3}#<ip>#g' \
+                   -e 's#(- Network:).*#\1 <redacted>#' \
+                   -e 's#(connection to server)[^:]*#\1 <redacted>#g'
           }
           ssh dkmalmyzh 'bash -s' "$LINES" <<'REMOTE' 2>&1 | redact
           set -e
@@ -97,8 +105,16 @@ jobs:
         env:
           DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
         run: |
+          # Тот же набор правил, что и у журнального шага: отказ psql печатает
+          # хост, IP, порт и имя пользователя БД прозой, без схемы postgres://.
           redact() {
-            sed -E -e 's#(postgres(ql)?://)[^[:space:]]*#\1<redacted>#g' -e "s#${DEPLOY_SSH_HOST}#<host>#g"
+            sed -E -e 's#(postgres(ql)?://)[^[:space:]]*#\1<redacted>#g' \
+                   -e "s#${DEPLOY_SSH_HOST}#<host>#g" \
+                   -e 's#/home/[^/[:space:]]+#/home/<user>#g' \
+                   -e 's#([0-9]{1,3}\.){3}[0-9]{1,3}#<ip>#g' \
+                   -e 's#(connection to server)[^:]*#\1 <redacted>#g' \
+                   -e 's#(for user) "[^"]*"#\1 "<redacted>"#g' \
+                   -e 's#(socket) "[^"]*"#\1 "<redacted>"#g'
           }
           ssh dkmalmyzh 'bash -s' <<'REMOTE' 2>&1 | redact
           set -e
@@ -107,6 +123,12 @@ jobs:
           psql "$DB" -tAc "SELECT 'institutions: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||')' FROM institutions;"
           psql "$DB" -tAc "SELECT 'posts: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||', from vk '||count(*) FILTER (WHERE source='vk')||')' FROM posts;"
           psql "$DB" -tAc "SELECT 'media: '||count(*) FROM media;"
+          # Дубли адресов: slug в схеме не уникален, а страница записи ищет по нему
+          # первый попавшийся документ — при совпадении остальные недоступны при
+          # живых ссылках из ленты. Импорт до 04.09 брал slug из заголовка, а
+          # заголовки записей из ВК повторяются по построению.
+          psql "$DB" -tAc "SELECT 'дубли slug у записей: '||coalesce(count(*)::text,'0') FROM (SELECT slug FROM posts WHERE slug IS NOT NULL GROUP BY slug HAVING count(*) > 1) d;"
+          psql "$DB" -tAc "SELECT 'записей под дублирующимися адресами: '||coalesce(sum(c)::text,'0') FROM (SELECT count(*) c FROM posts WHERE slug IS NOT NULL GROUP BY slug HAVING count(*) > 1) d;"
           psql "$DB" -tAc "SELECT 'vk sources resolved: '||count(*) FILTER (WHERE owner_id IS NOT NULL)||' / '||count(*) FROM institutions_vk_sources;"
           # coalesce на обоих уровнях: конкатенация с NULL даёт NULL, а string_agg
           # молча пропускает NULL-элементы. Учреждение без slug (заголовок ещё не
