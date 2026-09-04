@@ -188,6 +188,15 @@ jobs:
         timeout-minutes: 5
         run: pnpm payload run scripts/vk-sync-selftest.ts
 
+      # Перенос Калинино (D-074) на выгрузке той же формы, что на боксе: поля
+      # videos/sourceUrl не теряются, slug и публикация владельца сохраняются,
+      # повтор не плодит записей и медиа, коллизия адреса останавливает боевой
+      # прогон до первой записи. Схема тут новая (таблица posts_videos,
+      # колонка source_url) — юнитом это не проверить.
+      - name: Проверка переноса Калинино
+        timeout-minutes: 5
+        run: pnpm payload run scripts/kalinino-transfer-selftest.ts
+
       - name: Build
         run: pnpm build
 

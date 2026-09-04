@@ -1,0 +1,181 @@
+name: Переключить домен Калинино на портал (manual)
+
+# Третье имя портала — сдк-калинино.вмалмыже.рф (D-074). Делает то, чего деплой
+# делать не должен: снимает vhost самого Калинино, расширяет сертификат портала
+# третьим именем и ставит редирект-vhost из deploy/nginx-kalinino-redirect.conf.
+#
+# Почему отдельным воркфлоу, а не блоком в основном vhost: пока имя держит vhost
+# Калинино, второй блок с тем же server_name перехватил бы домен при первом же
+# деплое (первый файл по алфавиту выигрывает) — без сертификата на это имя.
+#
+# Порядок внутри — сертификат → vhost → приёмка, но с одним честным окном:
+# выпуск по webroot требует, чтобы ACME-путь для этого имени отвечал НАШ nginx,
+# то есть vhost Калинино снимается ДО выпуска. На минуту выпуска https по их
+# имени не отвечает. Любой сбой до финала возвращает их vhost на место.
+#
+# Режимы:
+#   check   — только приёмка редиректов по уже стоящему конфигу (read-only);
+#   switch  — полное переключение;
+#   restore — вернуть vhost Калинино из бэкапа и снять наш редирект-vhost.
+#
+# Приёмка (условие строки «редирект стоит», не цель): каждый опубликованный slug
+# из posts.json через прежнее имя → 301 на портал → 200 у нас. Ноль расхождений.
+#
+# Требует те же доступы, что deploy-prod.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Режим'
+        required: true
+        default: check
+        type: choice
+        options: [check, switch, restore]
+
+concurrency:
+  group: prod-nginx
+  cancel-in-progress: false
+
+env:
+  DOMAIN: xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai          # культура.вмалмыже.рф
+  LEGACY_DOMAIN: xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai # домкультуры.вмалмыже.рф
+  KALININO_DOMAIN: xn----8sbksaibjtblz.xn--80adkdyec4j.xn--p1ai # сдк-калинино.вмалмыже.рф
+
+jobs:
+  switch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+        run: |
+          set -e
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_PORT" ]; then
+            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / secrets.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_dkmalmyzh
+          chmod 600 ~/.ssh/id_ed25519_dkmalmyzh
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          cat > ~/.ssh/config <<CFG
+          Host dkmalmyzh
+            HostName $DEPLOY_SSH_HOST
+            Port $DEPLOY_SSH_PORT
+            User valstan
+            IdentityFile ~/.ssh/id_ed25519_dkmalmyzh
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+          CFG
+          chmod 600 ~/.ssh/config
+
+      # Конфиги и проверка едут файлами (D-046).
+      - name: Положить файлы на бокс
+        run: |
+          scp -q deploy/nginx-kalinino-http.conf dkmalmyzh:/tmp/kalinino-http.conf
+          scp -q deploy/nginx-kalinino-redirect.conf dkmalmyzh:/tmp/kalinino-redirect.conf
+          scp -q deploy/kalinino-redirect-check.py dkmalmyzh:/tmp/kalinino-redirect-check.py
+
+      # shell: bash — ради pipefail: код удалённого скрипта не должен теряться
+      # в конвейере с redact (грабля verify-handover).
+      - name: Переключение
+        shell: bash
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          case "$MODE" in check|switch|restore) ;; *) echo "::error::неизвестный режим"; exit 1 ;; esac
+          redact() {
+            sed -E -e "s#${DEPLOY_SSH_HOST}#<host>#g" -e 's#/home/[^/[:space:]]+#~#g'
+          }
+          ssh dkmalmyzh "MODE='$MODE' DOMAIN='$DOMAIN' LEGACY='$LEGACY_DOMAIN' KAL='$KALININO_DOMAIN' bash -s" 2>&1 <<'REMOTE' | redact
+          set -euo pipefail
+          OURS_AVAIL=/etc/nginx/sites-available/dkmalmyzh-kalinino.conf
+          OURS_ENABLED=/etc/nginx/sites-enabled/dkmalmyzh-kalinino.conf
+          RETIRED="$HOME/dkmalmyzh/retired"
+          STATE="$RETIRED/kalinino-vhost.state"
+          mkdir -p "$RETIRED"
+
+          DIR=$(ls -1d "$HOME"/kalinino/handover-* 2>/dev/null | sort | tail -1 || true)
+          [ -n "$DIR" ] && [ -f "$DIR/posts.json" ] || { echo "::error::выгрузка Калинино с posts.json не найдена — приёмке не с чем сверяться"; exit 1; }
+
+          # vhost Калинино: файлы в sites-enabled, где встречается их имя, кроме нашего.
+          THEIRS=$(sudo grep -ls "$KAL" /etc/nginx/sites-enabled/* 2>/dev/null | grep -v "$OURS_ENABLED" || true)
+          echo "vhost Калинино в sites-enabled: $(echo "$THEIRS" | grep -c . || true) файл(ов)"
+          echo "наш редирект-vhost: $([ -e "$OURS_ENABLED" ] && echo стоит || echo нет)"
+
+          restore_theirs() {
+            [ -f "$STATE" ] || return 0
+            while IFS=$'\t' read -r name target; do
+              [ -n "$name" ] || continue
+              if [ -n "$target" ]; then sudo ln -sfn "$target" "/etc/nginx/sites-enabled/$name"
+              else sudo cp "$RETIRED/$name.bak" "/etc/nginx/sites-enabled/$name"; fi
+              echo "vhost Калинино возвращён: $name"
+            done < "$STATE"
+          }
+
+          if [ "$MODE" = "restore" ]; then
+            sudo rm -f "$OURS_ENABLED"
+            restore_theirs
+            sudo nginx -t && sudo systemctl reload nginx
+            echo "наш редирект-vhost снят, vhost Калинино возвращён"
+            exit 0
+          fi
+
+          if [ "$MODE" = "switch" ]; then
+            if [ -n "$THEIRS" ]; then
+              : > "$STATE"
+              for f in $THEIRS; do
+                name=$(basename "$f")
+                if [ -L "$f" ]; then target=$(readlink -f "$f"); else target=""; sudo cp "$f" "$RETIRED/$name.bak"; fi
+                printf '%s\t%s\n' "$name" "$target" >> "$STATE"
+                sudo rm -f "$f"
+                echo "vhost Калинино снят (запись для возврата сохранена): $name"
+              done
+            fi
+            # Любой сбой ниже возвращает их vhost — сайт Калинино не должен исчезнуть
+            # из-за неудавшегося выпуска сертификата.
+            on_fail() { echo "::error::переключение не завершено — возвращаю vhost Калинино"; sudo rm -f "$OURS_ENABLED"; restore_theirs; sudo nginx -t && sudo systemctl reload nginx || true; }
+            trap 'on_fail; exit 1' ERR
+
+            if sudo certbot certificates --cert-name "$DOMAIN" 2>/dev/null | grep -q "$KAL"; then
+              echo "сертификат портала уже покрывает имя Калинино"
+            else
+              sudo cp /tmp/kalinino-http.conf "$OURS_AVAIL"
+              sudo ln -sfn "$OURS_AVAIL" "$OURS_ENABLED"
+              sudo nginx -t
+              sudo systemctl reload nginx
+              WEBROOT=/var/www/dkmalmyzh-acme
+              sudo mkdir -p "$WEBROOT/.well-known/acme-challenge"
+              echo probe-ok | sudo tee "$WEBROOT/.well-known/acme-challenge/probe" >/dev/null
+              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: $KAL" http://127.0.0.1/.well-known/acme-challenge/probe)
+              sudo rm -f "$WEBROOT/.well-known/acme-challenge/probe"
+              echo "ACME-путь под именем Калинино → $code (ожидается 200)"
+              [ "$code" = "200" ]
+              sudo certbot certonly --webroot -w "$WEBROOT" \
+                -d "$DOMAIN" -d "$LEGACY" -d "$KAL" --cert-name "$DOMAIN" --expand \
+                --non-interactive --agree-tos
+              sudo certbot certificates --cert-name "$DOMAIN" 2>/dev/null | grep -q "$KAL"
+              echo "сертификат расширен третьим именем"
+            fi
+
+            sudo cp /tmp/kalinino-redirect.conf "$OURS_AVAIL"
+            sudo ln -sfn "$OURS_AVAIL" "$OURS_ENABLED"
+            sudo nginx -t
+            sudo systemctl reload nginx
+            trap - ERR
+            echo "редирект-vhost Калинино поставлен, nginx перечитан"
+          fi
+
+          rm -f /tmp/kalinino-http.conf /tmp/kalinino-redirect.conf
+          [ -e "$OURS_ENABLED" ] || { echo "::error::редирект-vhost не стоит — проверять нечего (режим check до switch)"; exit 1; }
+          echo "== приёмка редиректов =="
+          python3 /tmp/kalinino-redirect-check.py "$DIR/posts.json" "$KAL" "$DOMAIN"
+          REMOTE

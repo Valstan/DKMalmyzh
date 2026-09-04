@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@500;600;700&family=Marck+Script&family=Montserrat:wght@500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@500;600;700&family=Kurale&family=Marck+Script&family=Montserrat:wght@500;600;700;800;900&display=swap');
 
 :root {
   --ink: #142057;
@@ -810,4 +810,137 @@ p {
 
 .eyebrow--crumbs {
   margin-bottom: 0.6rem;
+}
+
+/* ── Тема раздела «Калинино» (D-074) ───────────────────────────────────────
+   Образ прежнего сайта Калининской ЦКС по docs/VISUAL_IDENTITY.md их репо:
+   лён фоном, три опорных цвета вышивки (красный, синий, медовый), двойная
+   плоская тень с неравными радиусами, лента с фразой, эмблема, гирлянда.
+   Включается по пути — обёрткой SectionTheme на /dk/<slug> и записях этого
+   учреждения; шапка и подвал портала остаются общими. */
+.section-theme {
+  position: relative;
+}
+.section-theme--kalinino {
+  --ink: #3b261b;
+  --muted: #756052;
+  --paper: #fffaf0;
+  --linen: #f6ebd5;
+  --cream: #fff4d4;
+  --red: #c9341f;
+  --red-dark: #8f2419;
+  --blue: #14508a;
+  --honey: #efa928;
+  --gold: #ffc84a;
+  /* Токены портала, на которые смотрят общие стили статьи и списков. */
+  --berry: var(--red);
+  --aqua: var(--honey);
+  --sun: var(--honey);
+  --violet: var(--blue);
+  color: var(--ink);
+}
+.section-theme--kalinino a {
+  color: var(--blue);
+}
+.section-theme--kalinino > article {
+  padding: clamp(1.3rem, 4vw, 3rem);
+  background:
+    repeating-linear-gradient(90deg, rgba(113, 69, 34, 0.035) 0 1px, transparent 1px 7px),
+    var(--paper);
+  border: 5px solid var(--ink);
+  border-radius: 26px 62px 28px 72px;
+  box-shadow:
+    10px 12px 0 var(--honey),
+    16px 20px 0 var(--red);
+}
+.section-theme--kalinino h1,
+.section-theme--kalinino h2,
+.section-theme--kalinino h3 {
+  font-family: Kurale, Comfortaa, Montserrat, serif;
+  font-weight: 400;
+}
+.section-theme__ribbon {
+  display: flex;
+  justify-content: center;
+  gap: 0.9rem;
+  margin: 0 0 1.4rem;
+  padding: 0.45rem 1rem;
+  color: var(--cream);
+  background:
+    linear-gradient(90deg, transparent 0 12px, #ffffff24 12px 15px, transparent 15px 28px) 0 0 / 28px 100%,
+    var(--red-dark);
+  border-bottom: 3px solid var(--gold);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: 10px 22px 10px 22px;
+}
+.section-theme__emblem {
+  float: right;
+  margin: 0 0 1rem 1.2rem;
+  filter: drop-shadow(4px 5px 0 var(--honey));
+  transform: rotate(2deg);
+}
+.section-theme__emblem img {
+  width: clamp(80px, 12vw, 120px);
+  height: auto;
+}
+.section-theme--kalinino .post-list__item {
+  background: var(--paper);
+  border: 4px solid var(--ink);
+  border-radius: 16px 34px 14px 30px;
+  box-shadow:
+    6px 7px 0 var(--honey),
+    10px 12px 0 var(--red);
+}
+.section-theme--kalinino .post-cover,
+.section-theme--kalinino .post-gallery img {
+  border: 5px solid var(--ink);
+  border-radius: 24px 60px 26px 56px;
+  box-shadow:
+    9px 10px 0 var(--honey),
+    15px 17px 0 var(--red);
+}
+.section-theme--kalinino .institution-block {
+  border-top: 3px dashed var(--red);
+}
+.section-theme__garland {
+  margin: 2.5rem -1rem -1rem;
+  text-align: center;
+  filter: drop-shadow(0 10px 18px rgba(70, 40, 18, 0.25));
+  pointer-events: none;
+}
+.section-theme__garland img {
+  width: min(1400px, 116vw);
+  max-width: none;
+  height: auto;
+}
+@media (max-width: 760px) {
+  .section-theme--kalinino > article {
+    border-width: 4px;
+    box-shadow:
+      7px 8px 0 var(--honey),
+      11px 13px 0 var(--red);
+  }
+  .section-theme__emblem {
+    float: none;
+    margin: 0 0 1rem;
+    text-align: center;
+  }
+}
+
+/* Видео записи (импорт из ВК, перенос Калинино). */
+.post-videos {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+.post-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 12px;
+  background: #000;
 }

@@ -85,6 +85,8 @@ export async function importWallItems(
           type: 'news',
           source: 'vk',
           vkUid,
+          // Адрес записи в ВК — так их адресует сам ВК: /wall<owner>_<post>.
+          sourceUrl: `https://vk.com/wall${vkUid}`,
           content: vkTextToLexical(text),
           cover: media[0] ?? undefined,
           gallery: media.slice(1).map((image) => ({ image })),

@@ -8,9 +8,11 @@ import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { formatPostDate } from '../../../lib/format'
+import { SectionTheme, themeOf } from '../components/SectionTheme'
 
 type MediaDoc = { url?: string | null; alt?: string | null; width?: number | null; height?: number | null }
 type GalleryItem = { id?: string | null; image?: MediaDoc | string | number | null }
+type VideoItem = { id?: string | null; title?: string | null; url?: string | null }
 type PostDoc = {
   title?: string | null
   date?: string | null
@@ -19,6 +21,37 @@ type PostDoc = {
   content?: unknown
   cover?: MediaDoc | string | number | null
   gallery?: GalleryItem[] | null
+  videos?: VideoItem[] | null
+  institution?: unknown
+}
+
+// Видео записи: mp4 — нативный плеер, плеер ВК (video_ext.php) — кадр, прочее —
+// ссылка. Три формы, потому что три формы и приходят из ВК; неизвестный адрес
+// не прячем, а показываем ссылкой — потерять видео молча нельзя (#279).
+function VideoBlock({ video, fallbackTitle }: { video: VideoItem; fallbackTitle: string }) {
+  const url = video.url ?? ''
+  const title = video.title || fallbackTitle
+  if (/\.mp4(\?|$)/i.test(url)) {
+    return <video className="post-video" src={url} controls preload="metadata" title={title} />
+  }
+  if (/video_ext\.php/.test(url)) {
+    return (
+      <iframe
+        className="post-video"
+        src={url}
+        title={title}
+        allow="autoplay; fullscreen; encrypted-media"
+        allowFullScreen
+      />
+    )
+  }
+  return (
+    <p>
+      <a href={url} rel="noopener" target="_blank">
+        {title}
+      </a>
+    </p>
+  )
 }
 
 async function getPost(slug: string): Promise<PostDoc | null> {
@@ -61,7 +94,10 @@ export async function PostView({ slug }: { slug: string }) {
     .map((item) => (typeof item?.image === 'object' && item.image ? (item.image as MediaDoc) : null))
     .filter((image): image is MediaDoc => Boolean(image?.url))
 
+  const videos = (post.videos ?? []).filter((v) => typeof v?.url === 'string' && v.url)
+
   return (
+    <SectionTheme theme={themeOf(post.institution)}>
     <article>
       <h1>{post.title}</h1>
       <p className="post-list__meta">
@@ -93,6 +129,15 @@ export async function PostView({ slug }: { slug: string }) {
           ))}
         </section>
       ) : null}
+
+      {videos.length > 0 ? (
+        <section className="post-videos">
+          {videos.map((video, i) => (
+            <VideoBlock key={video.id ?? i} video={video} fallbackTitle={post.title || 'Видео'} />
+          ))}
+        </section>
+      ) : null}
     </article>
+    </SectionTheme>
   )
 }
