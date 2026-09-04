@@ -17,19 +17,22 @@ type Doc = {
   _status?: string
 }
 
-const makePayload = (docs: Doc[]) => {
-  const updates: { id: number; slug: string; draft: boolean }[] = []
+const makePayload = (docs: Doc[], options: { writeToVersionOnly?: boolean } = {}) => {
+  const updates: { id: number; slug: string }[] = []
   const payload = {
     find: vi.fn(async ({ where }: { where?: { source?: { equals: string } } }) => {
       const rows = where?.source ? docs.filter((d) => d.source === 'vk') : docs
       return { docs: rows, totalDocs: rows.length }
     }),
-    update: vi.fn(async ({ id, data, draft }: { id: number; data: { slug: string }; draft: boolean }) => {
+    update: vi.fn(async ({ id, data }: { id: number; data: { slug: string } }) => {
       const doc = docs.find((d) => d.id === id)
-      if (doc) doc.slug = data.slug
-      updates.push({ id, slug: data.slug, draft })
+      // Имитация настоящей грабли: правка ушла в версию, основная запись не
+      // изменилась. Операция обязана заметить это перечитыванием.
+      if (doc && !options.writeToVersionOnly) doc.slug = data.slug
+      updates.push({ id, slug: data.slug })
       return doc
     }),
+    findByID: vi.fn(async ({ id }: { id: number }) => docs.find((d) => d.id === id)),
   }
   return { payload, updates }
 }
@@ -99,14 +102,17 @@ describe('переименование адресов записей из ВК',
     expect(docs[0].slug).toBe('staryy-adres')
   })
 
-  it('черновик обновляется как черновик, опубликованное — как опубликованное', async () => {
-    const docs = [doc(1, 'Новость', 'novost', '-100_11', 'draft'), doc(2, 'Новость', 'novost', '-100_12', 'published')]
-    const { payload, updates } = makePayload(docs)
+  it('обновление, не дошедшее до основной записи, считается отказом', async () => {
+    const docs = [doc(1, 'Новость', 'novost', '-100_11'), doc(2, 'Новость', 'novost', '-100_12')]
+    const { payload } = makePayload(docs, { writeToVersionOnly: true })
 
-    await reslugVkPosts(payload as never)
+    const summary = await reslugVkPosts(payload as never)
 
-    expect(updates.find((u) => u.id === 1)?.draft).toBe(true)
-    expect(updates.find((u) => u.id === 2)?.draft).toBe(false)
+    // Именно это и произошло на проде: update отработал без исключения, отчёт
+    // сказал «переименовано», а адрес в базе остался прежним.
+    expect(summary.renamed).toBe(0)
+    expect(summary.failed).toBe(2)
+    expect(summary.messages.some((m) => m.includes('не изменился'))).toBe(true)
   })
 
   it('записи без vkUid не трогает', async () => {

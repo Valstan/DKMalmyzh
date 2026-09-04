@@ -106,15 +106,35 @@ export async function reslugVkPosts(
     }
 
     try {
+      // Обновляем ОСНОВНУЮ запись, без `draft: true`.
+      //
+      // С `draft: true` правка ложится в версию (`_posts_v`), а колонка
+      // `posts.slug` остаётся прежней — операция рапортует «переименовано 636»,
+      // а дубли в базе никуда не деваются. Поймано ровно так: отчёт зелёный,
+      // проба прода показала те же 49 совпадений. Публикацию это не включает:
+      // состояние берётся из `data._status`, которого мы не передаём (G223).
       await payload.update({
         collection: 'posts',
         id: row.id,
         context: { disableRevalidate: row._status !== 'published' },
-        // draft: true сохраняет черновик черновиком: без него Payload положил бы
-        // правку в опубликованную версию (G223 — состояние берётся из _status).
-        draft: row._status !== 'published',
         data: { slug: wanted },
       })
+
+      // Приёмка по факту, а не по отсутствию исключения: перечитываем документ и
+      // сверяем адрес. Молчаливое «обновилось не там» — тот же класс, что уже
+      // случился выше.
+      const check = (await payload.findByID({
+        collection: 'posts',
+        id: row.id,
+        depth: 0,
+      })) as PostRow
+
+      if (check?.slug !== wanted) {
+        summary.failed += 1
+        say(`запись ${vkUid}: адрес не изменился (в базе «${check?.slug ?? '—'}»)`)
+        continue
+      }
+
       if (typeof row.slug === 'string' && row.slug) taken.delete(row.slug)
       taken.add(wanted)
       summary.renamed += 1

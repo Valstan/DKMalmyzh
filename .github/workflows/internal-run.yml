@@ -96,11 +96,20 @@ jobs:
             exit 1
           fi
           case "$DRY_RUN" in true|false|'') ;; *) echo "::error::dry_run — только true/false"; exit 1 ;; esac
-          ssh dkmalmyzh 'bash -s' "$OPERATION" "$SLUG" "$DRY_RUN" <<'REMOTE'
+
+          # ⚠️ Значения передаются ИМЕНОВАННЫМИ переменными, а не позиционными
+          # аргументами. ssh не передаёт argv: он склеивает аргументы в одну
+          # строку, и удалённый шелл разбирает её заново — пустой аргумент при
+          # этом ИСЧЕЗАЕТ, а следующие сдвигаются. Поймано вживую: запуск
+          # reslug-vk с пустым slug и dry_run=true отдал «true» в $2, то есть в
+          # slug, а dry остался пустым — операция отработала боевым прогоном,
+          # отрапортовав `dryRun: false`. Подстановка безопасна: значения выше
+          # проверены по белому списку и форме.
+          ssh dkmalmyzh "OP='$OPERATION' SLUG='$SLUG' DRY='${DRY_RUN:-false}' bash -s" <<'REMOTE'
           set -euo pipefail
-          OP="$1"
-          SLUG="${2:-}"
-          DRY="${3:-false}"
+          OP="${OP:?операция не передана}"
+          SLUG="${SLUG:-}"
+          DRY="${DRY:-false}"
 
           SECRET=$(sudo grep '^INTERNAL_OPS_SECRET=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^INTERNAL_OPS_SECRET=//;s/^"//;s/"$//')
           if [ -z "$SECRET" ]; then
