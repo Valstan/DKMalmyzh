@@ -21,11 +21,16 @@ export const metadata: Metadata = {
     icon: '/icon.png',
     apple: '/apple-icon.png',
   },
-  alternates: { canonical: '/' },
+  // ⚠️ Ни canonical, ни openGraph.url тут задавать НЕЛЬЗЯ. Метаданные Next
+  // наследуются по сегментам: `alternates: { canonical: '/' }` в корневом layout
+  // проставлял канониклом главную КАЖДОЙ странице портала. Робот брал /prazdniki
+  // или /dk из sitemap, видел canonical на «/» и схлопывал страницу в главную —
+  // раздел просто не попадал в индекс, а ссылка в мессенджере разворачивалась
+  // карточкой главной. Канонический адрес задаёт каждая страница сама (canonicalOf
+  // в lib/site.ts), потому что знает свой путь; layout его не знает.
   openGraph: {
     title: SITE_NAME,
     description: SITE_DESC,
-    url: '/',
     siteName: SITE_NAME,
     locale: 'ru_RU',
     type: 'website',

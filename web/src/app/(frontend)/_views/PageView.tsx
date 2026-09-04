@@ -3,7 +3,7 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 import { notFound } from 'next/navigation'
 
-import { SITE_NAME } from '../../../lib/site'
+import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 
@@ -29,7 +29,11 @@ export async function pageMeta(slug: string): Promise<Metadata> {
   try {
     const page = await getPage(slug)
     if (!page) return {}
-    return { title: page.title || SITE_NAME }
+    return {
+      title: page.title || SITE_NAME,
+      alternates: { canonical: canonicalOf(`/pages/${slug}`) },
+      openGraph: { url: canonicalOf(`/pages/${slug}`), title: page.title || SITE_NAME },
+    }
   } catch {
     return {}
   }

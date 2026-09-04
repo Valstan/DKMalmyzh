@@ -4,7 +4,7 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 import { notFound } from 'next/navigation'
 
-import { SITE_NAME } from '../../../lib/site'
+import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { formatPostDate } from '../../../lib/format'
@@ -38,7 +38,11 @@ export async function postMeta(slug: string): Promise<Metadata> {
   try {
     const post = await getPost(slug)
     if (!post) return {}
-    return { title: post.title || SITE_NAME }
+    return {
+      title: post.title || SITE_NAME,
+      alternates: { canonical: canonicalOf(`/news/${slug}`) },
+      openGraph: { url: canonicalOf(`/news/${slug}`), title: post.title || SITE_NAME },
+    }
   } catch {
     return {}
   }

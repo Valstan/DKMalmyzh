@@ -425,7 +425,10 @@ p {
 /* Праздники района (D-075): карточка-ссылка на сайт праздника. */
 .festival-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  /* min(280px, 100%) — иначе жёсткий минимум трека не сжимается: на экране
+     360px карточка вылезала за контейнер, а overflow-x: hidden у body не давал
+     её прокрутить, то есть правый край просто срезался. */
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 1.25rem;
   margin: 0;
   padding: 0;
@@ -481,6 +484,13 @@ p {
   .festival-card {
     grid-template-columns: 1fr;
   }
+}
+
+.ornate-frame .section-link a {
+  /* .section-link задуман для тёмной .paint-frame, где жёлтый читается. На белом
+     фоне ornate-frame тот же цвет даёт контраст около 1.5:1 при норме 4.5:1 —
+     единственная ссылка на раздел праздников была практически не видна. */
+  color: var(--violet);
 }
 
 .paint-frame {
