@@ -29,6 +29,24 @@ def shape(value, depth=0):
     return type(value).__name__
 
 
+def collect_flags(value, counts, prefix=''):
+    """Считает булевы поля по всему дереву: путь -> [сколько True, сколько всего].
+
+    Именно счётчики отвечают на вопрос «правки есть или нет», не раскрывая текстов.
+    """
+    if isinstance(value, dict):
+        for key, item in value.items():
+            collect_flags(item, counts, prefix + ('.' if prefix else '') + str(key))
+    elif isinstance(value, list):
+        for item in value:
+            collect_flags(item, counts, prefix)
+    elif isinstance(value, bool):
+        slot = counts.setdefault(prefix, [0, 0])
+        slot[1] += 1
+        if value:
+            slot[0] += 1
+
+
 def main():
     if len(sys.argv) < 2:
         print('нужен путь к json-файлу', file=sys.stderr)
@@ -38,6 +56,14 @@ def main():
     items = data.items() if isinstance(data, dict) else enumerate(data)
     for key, value in items:
         print('  %s: %s' % (key, shape(value)))
+
+    counts = {}
+    collect_flags(data, counts)
+    if counts:
+        print('  --- булевы признаки (сколько True из скольких):')
+        for path in sorted(counts):
+            true_count, total = counts[path]
+            print('  %s: %d из %d' % (path, true_count, total))
     return 0
 
 
