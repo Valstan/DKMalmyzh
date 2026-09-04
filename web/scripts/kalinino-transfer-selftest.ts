@@ -141,7 +141,8 @@ const main = async () => {
       slug: 'ci-kalinino',
       shortTitle: 'CI-Калинино',
       theme: 'kalinino',
-      _status: 'published',
+      // Черновик, как заводит каталог: перенос обязан открыть раздел сам.
+      _status: 'draft',
     },
   })
 
@@ -194,6 +195,9 @@ const main = async () => {
     problems.push(`результат ${first.result.created}/${first.result.updated}/${first.result.failed}, ожидалось 3/1/0`)
   if (first.media.uploaded !== 3) problems.push(`загружено медиа ${first.media.uploaded}, ожидалось 3`)
   if (first.media.kept !== 1) problems.push(`оставлено своё медиа ${first.media.kept}, ожидалось 1`)
+  if (!first.institutionPublished) problems.push('карточка-получатель не опубликована')
+  const card = await payload.findByID({ collection: 'institutions', id: institution.id, depth: 0 })
+  if (card._status !== 'published') problems.push('раздел остался черновиком после переноса')
 
   const concert = (
     await payload.find({ collection: 'posts', where: { vkUid: { equals: `${OWNER}_1` } }, depth: 0, limit: 1 })
