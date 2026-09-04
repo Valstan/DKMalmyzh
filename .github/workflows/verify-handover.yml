@@ -60,6 +60,12 @@ jobs:
           CFG
           chmod 600 ~/.ssh/config
 
+      - uses: actions/checkout@v5
+
+      # Разбор структуры едет на бокс файлом, а не строкой в команде (D-046).
+      - name: Положить разборщик на бокс
+        run: scp -q deploy/handover-shape.py dkmalmyzh:/tmp/handover-shape.py
+
       - name: Сверить выгрузку
         env:
           DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
@@ -101,8 +107,15 @@ jobs:
             echo "манифест медиа: НЕТ"
           fi
 
+          # manual-edits.json решает выбор пути переноса: письмо Мозга говорит «ручных
+          # правок нет», а файл весит 14 КБ. Печатаем СТРУКТУРУ — ключи и счётчики,
+          # без текстов: содержимое чужих новостей в публичный лог не выносим.
+          # Разбор лежит отдельным файлом (D-046) и приезжает на бокс scp.
           if [ -f "$DIR/manual-edits.json" ]; then
             echo "manual-edits.json: $(wc -c < "$DIR/manual-edits.json") байт"
+            if [ -f /tmp/handover-shape.py ]; then
+              python3 /tmp/handover-shape.py "$DIR/manual-edits.json" || echo "  (структуру разобрать не удалось)"
+            fi
           fi
 
           # sha256 архива — единственная тяжёлая операция.
@@ -121,7 +134,7 @@ jobs:
                 exit 1
               fi
             else
-              echo "приложенного .sha256 рядом нет — сверять не с чем, значение выше просто зафиксировано"
+                echo "приложенного .sha256 рядом нет — сверять не с чем, значение выше просто зафиксировано"
             fi
           elif [ -n "$ARC" ]; then
             echo "архив на месте, sha256 пропущен по параметру запуска"
