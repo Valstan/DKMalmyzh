@@ -78,6 +78,8 @@ export type TransferSummary = {
   sourceUrl: { present: number; missing: number }
   categories: Record<string, number>
   result: { created: number; updated: number; failed: number }
+  /** Карточка учреждения опубликована этим прогоном (была черновиком). */
+  institutionPublished: boolean
   messages: string[]
 }
 
@@ -90,7 +92,7 @@ type PostRow = {
   _status?: string | null
 }
 
-type InstitutionRow = { id: number; slug?: string | null }
+type InstitutionRow = { id: number; slug?: string | null; _status?: string | null }
 
 const MIME_BY_EXT: Record<string, string> = {
   '.jpg': 'image/jpeg',
@@ -121,6 +123,7 @@ export async function transferKalinino(
     sourceUrl: { present: 0, missing: 0 },
     categories: {},
     result: { created: 0, updated: 0, failed: 0 },
+    institutionPublished: false,
     messages: [],
   }
   const say = (message: string) => {
@@ -323,6 +326,21 @@ export async function transferKalinino(
       summary.result.failed += 1
       say(`запись ${post.vkPostId}: не перенесена — ${describeError(err)}`)
     }
+  }
+
+  // Раздел — цель редиректа для всех опубликованных ссылок Калинино. Карточка,
+  // заведённая каталогом черновиком, отдаёт 404, и 301 → 404 на весь их индекс —
+  // ровно soft-404, от которого плана предостерегал первый скептик. Поэтому
+  // перенос опубликованных записей публикует и карточку-получателя.
+  if (summary.result.failed === 0 && summary.source.published > 0 && institution._status !== 'published') {
+    await payload.update({
+      collection: 'institutions',
+      id: institution.id,
+      data: { _status: 'published' },
+    })
+    const card = (await payload.findByID({ collection: 'institutions', id: institution.id, depth: 0 })) as InstitutionRow
+    summary.institutionPublished = card._status === 'published'
+    say(summary.institutionPublished ? 'карточка учреждения опубликована — раздел открыт' : 'карточка учреждения НЕ опубликовалась')
   }
 
   say(

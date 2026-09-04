@@ -92,8 +92,10 @@ jobs:
           MODE: ${{ inputs.mode }}
         run: |
           case "$MODE" in check|switch|restore) ;; *) echo "::error::неизвестный режим"; exit 1 ;; esac
+          # Имена соседних vhost (состав бокса) в лог не попадают (D-038): nginx -t
+          # печатает предупреждения с путями sites-enabled/<сосед>.
           redact() {
-            sed -E -e "s#${DEPLOY_SSH_HOST}#<host>#g" -e 's#/home/[^/[:space:]]+#~#g'
+            sed -E -e "s#${DEPLOY_SSH_HOST}#<host>#g" -e 's#/home/[^/[:space:]]+#~#g'                    -e 's#sites-enabled/[A-Za-z0-9_.-]+#sites-enabled/<vhost>#g'
           }
           ssh dkmalmyzh "MODE='$MODE' DOMAIN='$DOMAIN' LEGACY='$LEGACY_DOMAIN' KAL='$KALININO_DOMAIN' bash -s" 2>&1 <<'REMOTE' | redact
           set -euo pipefail
@@ -102,6 +104,9 @@ jobs:
           RETIRED="$HOME/dkmalmyzh/retired"
           STATE="$RETIRED/kalinino-vhost.state"
           mkdir -p "$RETIRED"
+          # Предупреждения nginx о соседних vhost — не наша диагностика и не для
+          # публичного лога; код возврата берём у самого nginx -t.
+          nginx_test() { sudo nginx -t 2>&1 | grep -v 'protocol options redefined'; return "${PIPESTATUS[0]}"; }
 
           DIR=$(ls -1d "$HOME"/kalinino/handover-* 2>/dev/null | sort | tail -1 || true)
           [ -n "$DIR" ] && [ -f "$DIR/posts.json" ] || { echo "::error::выгрузка Калинино с posts.json не найдена — приёмке не с чем сверяться"; exit 1; }
@@ -117,14 +122,14 @@ jobs:
               [ -n "$name" ] || continue
               if [ -n "$target" ]; then sudo ln -sfn "$target" "/etc/nginx/sites-enabled/$name"
               else sudo cp "$RETIRED/$name.bak" "/etc/nginx/sites-enabled/$name"; fi
-              echo "vhost Калинино возвращён: $name"
+              echo "vhost Калинино возвращён"
             done < "$STATE"
           }
 
           if [ "$MODE" = "restore" ]; then
             sudo rm -f "$OURS_ENABLED"
             restore_theirs
-            sudo nginx -t && sudo systemctl reload nginx
+            nginx_test && sudo systemctl reload nginx
             echo "наш редирект-vhost снят, vhost Калинино возвращён"
             exit 0
           fi
@@ -137,12 +142,12 @@ jobs:
                 if [ -L "$f" ]; then target=$(readlink -f "$f"); else target=""; sudo cp "$f" "$RETIRED/$name.bak"; fi
                 printf '%s\t%s\n' "$name" "$target" >> "$STATE"
                 sudo rm -f "$f"
-                echo "vhost Калинино снят (запись для возврата сохранена): $name"
+                echo "vhost Калинино снят (запись для возврата сохранена)"
               done
             fi
             # Любой сбой ниже возвращает их vhost — сайт Калинино не должен исчезнуть
             # из-за неудавшегося выпуска сертификата.
-            on_fail() { echo "::error::переключение не завершено — возвращаю vhost Калинино"; sudo rm -f "$OURS_ENABLED"; restore_theirs; sudo nginx -t && sudo systemctl reload nginx || true; }
+            on_fail() { echo "::error::переключение не завершено — возвращаю vhost Калинино"; sudo rm -f "$OURS_ENABLED"; restore_theirs; nginx_test && sudo systemctl reload nginx || true; }
             trap 'on_fail; exit 1' ERR
 
             if sudo certbot certificates --cert-name "$DOMAIN" 2>/dev/null | grep -q "$KAL"; then
@@ -150,12 +155,19 @@ jobs:
             else
               sudo cp /tmp/kalinino-http.conf "$OURS_AVAIL"
               sudo ln -sfn "$OURS_AVAIL" "$OURS_ENABLED"
-              sudo nginx -t
+              nginx_test
               sudo systemctl reload nginx
               WEBROOT=/var/www/dkmalmyzh-acme
               sudo mkdir -p "$WEBROOT/.well-known/acme-challenge"
               echo probe-ok | sudo tee "$WEBROOT/.well-known/acme-challenge/probe" >/dev/null
-              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: $KAL" http://127.0.0.1/.well-known/acme-challenge/probe)
+              # reload асинхронный: старые воркеры ещё отвечают прежним конфигом
+              # (их vhost → 301). Ждём, пока проба не пройдёт через новый.
+              code=000
+              for attempt in $(seq 1 15); do
+                code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: $KAL" http://127.0.0.1/.well-known/acme-challenge/probe || true)
+                [ "$code" = "200" ] && break
+                sleep 1
+              done
               sudo rm -f "$WEBROOT/.well-known/acme-challenge/probe"
               echo "ACME-путь под именем Калинино → $code (ожидается 200)"
               [ "$code" = "200" ]
@@ -168,10 +180,11 @@ jobs:
 
             sudo cp /tmp/kalinino-redirect.conf "$OURS_AVAIL"
             sudo ln -sfn "$OURS_AVAIL" "$OURS_ENABLED"
-            sudo nginx -t
+            nginx_test
             sudo systemctl reload nginx
             trap - ERR
             echo "редирект-vhost Калинино поставлен, nginx перечитан"
+            sleep 3
           fi
 
           rm -f /tmp/kalinino-http.conf /tmp/kalinino-redirect.conf
