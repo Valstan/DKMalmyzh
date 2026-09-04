@@ -10,6 +10,7 @@
 - ⚠️ **Бокс делят несколько сайтов портфеля**, и `listen 443 ssl default_server` держит **не наш** vhost — https без совпадения по `server_name` уходит соседу. Поэтому smoke-проверки обязаны смотреть **контент-маркер** («РЦКД»), а не только код 200: 200 отдаст и сосед. Диагностика — `.github/workflows/probe-nginx.yml` (read-only); имена соседних сайтов он в лог не печатает, только «мы / сосед».
 - **Стек:** Next.js 15 App Router + **Payload 3.75 + PostgreSQL** (стандарт экосистемы, стек Сабантуя), pnpm, standalone-сборка в CI.
 - **Статус:** ⏸ **каркас на проде, ждёт наполнения контентом владельцем** (из ВК) — это осознанная пауза by design, не заброшенность.
+- **Третье имя портала — `сдк-калинино.вмалмыже.рф`** (D-074, с 05.09): 301 на `/dk/kalinino`, `/news/<slug>` путь-в-путь. Его vhost — **отдельный** файл `deploy/nginx-kalinino-redirect.conf`, ставится только `switch-kalinino-domain.yml`, деплой его не трогает; сертификат — та же линия LE на три имени.
 - **Код сайта — в `web/`**, деплой-обвязка — в `deploy/`.
 - Карточка проекта: [`../brain_matrica/projects/DKMalmyzh.md`](../brain_matrica/projects/DKMalmyzh.md). Концепт малмыж-кластера: [`../brain_matrica/docs/plans/malmyzh-sites-rebuild-concept.md`](../brain_matrica/docs/plans/malmyzh-sites-rebuild-concept.md).
 - Локальная память последней сессии: [`docs/SESSION_HANDOFF.md`](docs/SESSION_HANDOFF.md).
