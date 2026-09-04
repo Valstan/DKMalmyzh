@@ -7,6 +7,8 @@ import { SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { formatPostDate } from '../../../lib/format'
 import { institutionBadge, institutionHref, institutionLabel } from '../../../lib/institutions'
+import { FESTIVALS } from '../../../lib/festivals'
+import { FestivalCards } from './FestivalsView'
 
 type Home = {
   title?: string | null
@@ -143,6 +145,20 @@ export async function HomeView() {
             <p>Сказочные образы, вихрь движения и радость творчества.</p>
           </article>
         </div>
+      </section>
+
+      {/* Праздники района (D-075): ссылки на самостоятельные сайты, не разделы. */}
+      <section className="festivals-section ornate-frame">
+        <div className="section-heading">
+          <p className="eyebrow">Свои сайты, своя история</p>
+          <h2>Праздники района</h2>
+        </div>
+        <FestivalCards festivals={FESTIVALS} />
+        <p className="section-link">
+          <Link href="/prazdniki">
+            Все праздники района <span aria-hidden="true">→</span>
+          </Link>
+        </p>
       </section>
 
       {events.length > 0 ? (

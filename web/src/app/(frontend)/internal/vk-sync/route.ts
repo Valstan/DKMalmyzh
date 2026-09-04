@@ -26,9 +26,21 @@ const WALL_COUNT = Number(process.env.VK_SYNC_COUNT || 20)
 // убедится в качестве выборки.
 const PUBLISH = process.env.VK_SYNC_PUBLISH === '1'
 
+// Один прогон за раз. Первый импорт 04.09 шёл дольше получаса, таймер стартовал
+// второй поверх него, и оба стали писать одни и те же записи: второй упирался в
+// уникальность vkUid и имени файла в Media, а в журнале это выглядело как
+// «с ошибкой 15» без объяснения. Замок в памяти процесса достаточен: на проде
+// один экземпляр приложения (standalone, один Node-процесс).
+let running: { since: number } | null = null
+
 export async function POST(request: Request): Promise<Response> {
   const denied = guardInternal(request, 'импорт из ВК')
   if (denied) return denied.response
+
+  if (running) {
+    const minutes = Math.round((Date.now() - running.since) / 60000)
+    return Response.json({ error: `прогон уже идёт (${minutes} мин)` }, { status: 409 })
+  }
 
   // Ходим в ВК только через шлюз SARAFAN (pool #062) — прямых токенов у нас нет
   // и быть не должно. Нет адреса или ключа шлюза — импорт выключен.
@@ -42,6 +54,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const payload = await getPayload({ config })
 
+  running = { since: Date.now() }
   try {
     const summary = await runVkSync(payload, {
       gateway,
@@ -54,5 +67,7 @@ export async function POST(request: Request): Promise<Response> {
   } catch (err) {
     payload.logger.error(`[vk-sync] прогон не завершился: ${(err as Error)?.message ?? err}`)
     return Response.json({ error: 'прогон не завершился' }, { status: 500 })
+  } finally {
+    running = null
   }
 }
