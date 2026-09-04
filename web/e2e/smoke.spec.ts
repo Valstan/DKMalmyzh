@@ -116,6 +116,21 @@ test.describe('публичные страницы открываются в б�
     })
   })
 
+  // Праздники района (D-075): карточки ведут НА САЙТ праздника, не внутрь портала.
+  test('праздники района — карточки со ссылками наружу', async ({ page }) => {
+    await withoutPageErrors(page, async () => {
+      const res = await page.goto('/prazdniki')
+      expect(res?.status()).toBe(200)
+      await expect(page.locator('h1')).toHaveText('Праздники района')
+      const sabantuy = page.getByRole('link', { name: 'Сабантуй Малмыж' })
+      const kazanskaya = page.getByRole('link', { name: 'Ярмарка Казанская в Малмыже' })
+      await expect(sabantuy).toBeVisible()
+      await expect(kazanskaya).toBeVisible()
+      await expect(sabantuy).toHaveAttribute('href', /^https:\/\/xn--/)
+      await expect(kazanskaya).toHaveAttribute('href', /^https:\/\/xn--/)
+    })
+  })
+
   test('несуществующая новость даёт 404, а не пустую страницу', async ({ page }) => {
     const res = await page.goto('/news/такого-slug-нет')
     expect(res?.status()).toBe(404)
