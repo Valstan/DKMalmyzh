@@ -150,6 +150,32 @@ export function isLexicalDoc(value: unknown): value is { root: { children: unkno
   return Boolean(root && Array.isArray(root.children))
 }
 
+/**
+ * Содержимое записи для переноса: lexical как есть; ПУСТОЕ (`null`) — это
+ * запись без текста, «афиша-картинка» — сухой прогон на проде показал их у
+ * заметной части записей. Пустой текст — законное содержимое, не ошибка: такие
+ * записи владелец публиковал ровно ради картинки. Пустоте даём документ с
+ * одним пустым абзацем, чтобы поле в админке открывалось. Непустое, но не
+ * lexical — ошибка формы, запись не переносится (потеря текста молча — #279).
+ */
+export function contentFor(value: unknown): { root: { children: unknown[] } } | null {
+  if (value === null || value === undefined) return EMPTY_LEXICAL
+  return isLexicalDoc(value) ? value : null
+}
+
+const EMPTY_LEXICAL = {
+  root: {
+    type: 'root',
+    version: 1,
+    format: '',
+    indent: 0,
+    direction: null,
+    children: [
+      { type: 'paragraph', version: 1, format: '', indent: 0, direction: null, children: [] },
+    ],
+  },
+}
+
 /** Форма каталога выгрузки, допустимая в query-параметре маршрута. */
 export const HANDOVER_DIR_RE = /^\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+$/
 

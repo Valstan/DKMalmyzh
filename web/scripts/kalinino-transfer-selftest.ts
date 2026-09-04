@@ -87,7 +87,8 @@ const POSTS: HandoverPost[] = [
     coverFilename: null,
     gallery: null,
     videos: null,
-    content: lexical('Афиша'),
+    // Афиша-картинка без текста: content пустой, как у трети записей Калинино.
+    content: null,
   },
   {
     id: 3,
@@ -216,6 +217,8 @@ const main = async () => {
     await payload.find({ collection: 'posts', where: { vkUid: { equals: `${OWNER}_2` } }, depth: 0, limit: 1 })
   ).docs[0]
   if (afisha?.type !== 'event') problems.push('рубрика afisha не стала видом event')
+  if (!afisha?.content || !Array.isArray((afisha.content as { root?: { children?: unknown[] } }).root?.children)) problems.push('запись без текста не получила пустой lexical-документ')
+  if (dry.emptyContent !== 2) problems.push(`без текста в плане ${dry.emptyContent}, ожидалось 2`)
   if (afisha?._status !== 'draft') problems.push('черновик выгрузки опубликовался')
 
   const merged = (

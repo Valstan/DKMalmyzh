@@ -7,8 +7,8 @@ import type { Post } from '../../payload-types'
 import { describeError } from '../vk/import'
 import {
   categoryLabelFor,
+  contentFor,
   findSlugCollisions,
-  isLexicalDoc,
   mediaFilenamesOf,
   normalizeVideos,
   parseHandover,
@@ -72,6 +72,8 @@ export type TransferSummary = {
     reused: number
     kept: number
   }
+  /** Записей без текста (только картинка/видео) — переносятся с пустым абзацем. */
+  emptyContent: number
   videos: { posts: number; total: number }
   sourceUrl: { present: number; missing: number }
   categories: Record<string, number>
@@ -114,6 +116,7 @@ export async function transferKalinino(
     collisions: [],
     renamed: [],
     media: { files: 0, missing: 0, uploaded: 0, reused: 0, kept: 0 },
+    emptyContent: 0,
     videos: { posts: 0, total: 0 },
     sourceUrl: { present: 0, missing: 0 },
     categories: {},
@@ -220,7 +223,8 @@ export async function transferKalinino(
     const label = categoryLabelFor(post.categorySlug, categories) ?? '(без рубрики)'
     summary.categories[label] = (summary.categories[label] ?? 0) + 1
 
-    if (!isLexicalDoc(post.content)) {
+    if (post.content === null || post.content === undefined) summary.emptyContent += 1
+    else if (!contentFor(post.content)) {
       say(`запись ${post.vkPostId}: content не lexical-документ — запись будет пропущена`)
     }
   }
@@ -228,7 +232,7 @@ export async function transferKalinino(
   say(
     `план: создать ${summary.plan.create}, обновить ${summary.plan.update}; ` +
       `медиа ${summary.media.files} файлов, отсутствует ${summary.media.missing}; ` +
-      `видео у ${summary.videos.posts} записей (${summary.videos.total}); ` +
+      `без текста ${summary.emptyContent}; видео у ${summary.videos.posts} записей (${summary.videos.total}); ` +
       `sourceUrl есть у ${summary.sourceUrl.present}, нет у ${summary.sourceUrl.missing}; ` +
       `коллизий адресов ${summary.collisions.length}, переназначено внутри выгрузки ${summary.renamed.length}`,
   )
@@ -247,7 +251,8 @@ export async function transferKalinino(
   // 6. Боевой прогон.
   for (const post of posts) {
     try {
-      if (!isLexicalDoc(post.content)) {
+      const content = contentFor(post.content)
+      if (!content) {
         summary.result.failed += 1
         continue
       }
@@ -275,7 +280,7 @@ export async function transferKalinino(
         source: 'vk' as const,
         vkUid: post.vkPostId,
         sourceUrl: typeof post.sourceUrl === 'string' ? post.sourceUrl.trim() || undefined : undefined,
-        content: post.content as Post['content'],
+        content: content as Post['content'],
         videos: normalizeVideos(post.videos),
         ...(mediaIds
           ? { cover: mediaIds[0], gallery: mediaIds.slice(1).map((image) => ({ image })) }

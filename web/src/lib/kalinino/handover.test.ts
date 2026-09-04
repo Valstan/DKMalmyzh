@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   categoryLabelFor,
+  contentFor,
   findSlugCollisions,
   isLexicalDoc,
   isSafeHandoverDir,
@@ -75,6 +76,14 @@ describe('соответствие полей', () => {
       ],
     })
     expect(names).toEqual(['vk-1-0.jpg', 'vk-1-1.jpg', 'vk-1-2.jpg'])
+  })
+
+  it('пустое содержимое — пустой абзац, битое — отказ', () => {
+    expect(contentFor(null)?.root.children).toHaveLength(1)
+    expect(contentFor(undefined)).not.toBeNull()
+    expect(contentFor('текст')).toBeNull()
+    const doc = { root: { type: 'root', children: [] } }
+    expect(contentFor(doc)).toBe(doc)
   })
 
   it('lexical-документ узнаётся по форме', () => {
