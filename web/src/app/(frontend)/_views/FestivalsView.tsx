@@ -1,4 +1,5 @@
 import { FESTIVALS, type Festival } from '../../../lib/festivals'
+import { FestivalCover } from './FestivalCover'
 
 // Раздел «Праздники района» (D-075): карточки-ссылки на самостоятельные сайты
 // праздников. Данные статические — `lib/festivals.ts`; карточек две, место для
@@ -24,13 +25,9 @@ export function FestivalCards({ festivals }: { festivals: Festival[] }) {
           {festival.cover ? (
             // Обложка отдаётся сервером праздника по ссылке (не копией), поэтому
             // обычный <img>, а не next/image: чужой хост в remotePatterns не заводим.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              className="festival-card__cover"
-              src={festival.cover.src}
-              alt={festival.cover.alt}
-              loading="lazy"
-            />
+            // Клиентский компонент — ради подмены заглушкой, если чужой сервер
+            // недоступен: иначе на первом экране главной висела бы битая картинка.
+            <FestivalCover src={festival.cover.src} alt={festival.cover.alt} />
           ) : (
             <div className="festival-card__cover festival-card__cover--empty" aria-hidden="true">
               ✦

@@ -10,6 +10,7 @@ import {
   CI_POST_SLUG,
   CI_POST_TITLE_UPDATED,
 } from '../scripts/ci-fixtures'
+import { FESTIVALS } from '../src/lib/festivals'
 
 // Ошибки страницы (uncaught exception в браузере) не роняют ответ сервера: HTTP
 // остаётся 200, разметка приходит, а гидратация ложится. Гейт, смотрящий только
@@ -117,18 +118,36 @@ test.describe('публичные страницы открываются в б�
   })
 
   // Праздники района (D-075): карточки ведут НА САЙТ праздника, не внутрь портала.
-  test('праздники района — карточки со ссылками наружу', async ({ page }) => {
+  //
+  // Проверяются инварианты, а не тексты. Названия карточек пишут сами праздники и
+  // присылают через Мозг — тест, прибитый к строке «Сабантуй Малмыж», падал бы на
+  // первом же обновлении карточки, ничего при этом не проверяя по существу.
+  test('праздники района — все карточки на месте и ведут наружу', async ({ page }) => {
     await withoutPageErrors(page, async () => {
       const res = await page.goto('/prazdniki')
       expect(res?.status()).toBe(200)
       await expect(page.locator('h1')).toHaveText('Праздники района')
-      const sabantuy = page.getByRole('link', { name: 'Сабантуй Малмыж' })
-      const kazanskaya = page.getByRole('link', { name: 'Ярмарка Казанская в Малмыже' })
-      await expect(sabantuy).toBeVisible()
-      await expect(kazanskaya).toBeVisible()
-      await expect(sabantuy).toHaveAttribute('href', /^https:\/\/xn--/)
-      await expect(kazanskaya).toHaveAttribute('href', /^https:\/\/xn--/)
+      await expect(page.locator('.festival-card')).toHaveCount(FESTIVALS.length)
+
+      for (const festival of FESTIVALS) {
+        const link = page.locator(`.festival-card a[href="${festival.url}"]`).first()
+        await expect(link, `нет ссылки на ${festival.host}`).toBeVisible()
+      }
     })
+  })
+
+  // Канонический адрес задаётся постранично. Пока он жил в корневом layout, ВСЕ
+  // страницы объявляли канонической главную, и раздел выпадал из индекса при
+  // живом sitemap — расхождение, которое снаружи ничем себя не выдаёт.
+  test('страницы объявляют канониклом себя, а не главную', async ({ page }) => {
+    for (const path of ['/prazdniki', '/news', '/dk']) {
+      await page.goto(path)
+      const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
+      expect(canonical, `canonical на ${path}`).toContain(path)
+    }
+    await page.goto('/')
+    const home = await page.locator('link[rel="canonical"]').getAttribute('href')
+    expect(home?.replace(/^https?:\/\/[^/]+/, '') || '/').toBe('/')
   })
 
   test('несуществующая новость даёт 404, а не пустую страницу', async ({ page }) => {

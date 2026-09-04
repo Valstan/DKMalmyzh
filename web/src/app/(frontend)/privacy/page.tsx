@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 
-import { SITE_NAME } from '../../../lib/site'
+import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { analyticsEnabled } from '../components/Analytics'
 
 // Минимальное уведомление об обработке данных посетителей. Заведено вместе со
@@ -10,6 +10,8 @@ import { analyticsEnabled } from '../components/Analytics'
 export const metadata: Metadata = {
   title: 'Обработка данных посетителей',
   description: `Как ${SITE_NAME} собирает и использует обезличенные данные о посещениях сайта.`,
+  alternates: { canonical: canonicalOf('/privacy') },
+  openGraph: { url: canonicalOf('/privacy'), title: 'Обработка данных посетителей' },
 }
 
 export default function PrivacyPage() {

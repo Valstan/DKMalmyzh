@@ -15,3 +15,24 @@ export const SITE_NAME = 'Культура Малмыжского района'
 export const SITE_DESC =
   'Дома культуры Малмыжского района Кировской области: новости, афиши и события. ' +
   'Общая лента всех учреждений культуры района.'
+
+/**
+ * Канонический путь страницы для `alternates.canonical` и `openGraph.url`.
+ *
+ * Задаётся ПОСТРАНИЧНО и никогда в корневом layout: метаданные Next наследуются
+ * по сегментам, поэтому один canonical в layout проставляется всем страницам
+ * сразу, и каждая из них объявляет канонической чужую. Робот в такой ситуации
+ * выбрасывает страницу из индекса, а sitemap продолжает её обещать — расхождение
+ * молчаливое.
+ *
+ * Не-ASCII в пути живёт только percent-encoded (G300): кириллический slug
+ * кодируется здесь, иначе строка невалидна в `<loc>` и ломает `Location`.
+ */
+export function canonicalOf(path: string): string {
+  const clean = path.startsWith('/') ? path : `/${path}`
+  const encoded = clean
+    .split('/')
+    .map((part) => (part ? encodeURIComponent(decodeURIComponent(part)) : part))
+    .join('/')
+  return `${SITE_URL}${encoded === '/' ? '/' : encoded}`
+}
