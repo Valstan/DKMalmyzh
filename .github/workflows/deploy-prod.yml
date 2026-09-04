@@ -100,8 +100,6 @@ jobs:
           DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
           [ -n "$DB" ] || exit 3
           psql "$DB" -tAc "SELECT name FROM payload_migrations ORDER BY name;"
-          echo "---LOCKED---"
-          psql "$DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name = 'payload_locked_documents_rels' ORDER BY column_name;"
           REMOTE
           )
           RC=$?
@@ -112,8 +110,6 @@ jobs:
             echo "::error::реестр миграций на проде не прочитан (код $RC) — деплой остановлен"
             exit 1
           fi
-          LOCKED_COLS=$(printf '%s\n' "$APPLIED" | sed -n '/^---LOCKED---$/,$p' | tail -n +2)
-          APPLIED=$(printf '%s\n' "$APPLIED" | sed '/^---LOCKED---$/,$d')
 
           MISSING=""
           for f in web/src/migrations/*.sql; do
@@ -128,26 +124,79 @@ jobs:
           fi
           echo "все миграции репозитория есть в реестре прода — деплой продолжается"
 
-          # Дрейф-проба G231 (третий рецидив в кластере, письмо Мозга 04.09):
-          # Payload берёт блокировку при открытии ЛЮБОГО документа и перечисляет в
-          # payload_locked_documents_rels все коллекции разом. Коллекция, заведённая
-          # ручной миграцией без колонки <slug>_id в этой таблице, кладёт всю
-          # админку, а список таблиц при этом не меняется — гейт по именам таблиц
-          # молчит. Поэтому сверяем по паре «таблица.колонка»: slug каждой коллекции
-          # из src/collections обязан иметь свою колонку на проде.
+      # Дрейф-проба G231 — ОТДЕЛЬНЫМ шагом и БЕЗ условия по событию.
+      #
+      # Раньше она жила внутри Migration guard, у которого стоит
+      # `if: github.event_name != 'workflow_dispatch'`. Это ровно тот путь, которым
+      # новая миграция и приезжает на прод: сперва apply-migration.yml, затем деплой
+      # через dispatch. То есть проба выключалась именно в том прогоне, ради
+      # которого написана, — а деплой оставался зелёным.
+      #
+      # Класс G231: Payload берёт блокировку при открытии ЛЮБОГО документа и
+      # перечисляет в payload_locked_documents_rels все коллекции разом. Коллекция,
+      # заведённая ручной миграцией без колонки <slug>_id, кладёт всю админку, при
+      # этом список таблиц не меняется — гейт по именам таблиц молчит.
+      #
+      # Список коллекций берём из массива `collections` в payload.config.ts, а не
+      # globом по каталогу: коллекция может лежать в подкаталоге или быть объявлена
+      # мимо каталога, а файл в каталоге может быть ещё не подключён к конфигу.
+      # Slug, который не удалось извлечь, — ошибка шага, а не `continue`: молчаливый
+      # пропуск неотличим от успеха.
+      - name: Дрейф-проба G231 (payload_locked_documents_rels)
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_drift
+          chmod 600 ~/.ssh/id_ed25519_drift
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          cleanup() { rm -f ~/.ssh/id_ed25519_drift; }
+          trap cleanup EXIT
+          trap 'cleanup; exit 130' INT TERM
+
+          # Имена коллекций, зарегистрированных в конфиге.
+          REGISTERED=$(sed -nE 's/^[[:space:]]*collections:[[:space:]]*\[(.*)\].*/\1/p' web/src/payload.config.ts | tr ',' '\n' | tr -d ' ')
+          [ -n "$REGISTERED" ] || { echo "::error::не разобрал массив collections в payload.config.ts"; exit 1; }
+
+          SLUGS=""
+          for name in $REGISTERED; do
+            file=$(grep -rlE "^[[:space:]]*(export )?const $name" web/src/collections | head -1 || true)
+            [ -n "$file" ] || { echo "::error::коллекция $name объявлена в конфиге, но её файл не найден"; exit 1; }
+            slug=$(sed -nE "s/^[[:space:]]*slug:[[:space:]]*['\"]([A-Za-z0-9_-]+)['\"].*/\1/p" "$file" | head -1)
+            [ -n "$slug" ] || { echo "::error::в $file не удалось прочитать slug коллекции $name — проба не может ручаться за G231"; exit 1; }
+            SLUGS="$SLUGS $slug"
+          done
+          NSLUGS=$(printf '%s\n' $SLUGS | grep -c . || true)
+          echo "коллекций в конфиге: $NSLUGS ($SLUGS )"
+
+          LOCKED_COLS=$(ssh -i ~/.ssh/id_ed25519_drift -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -p "$DEPLOY_SSH_PORT" "valstan@$DEPLOY_SSH_HOST" 'bash -s' <<'REMOTE'
+          set -e
+          DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
+          [ -n "$DB" ] || exit 3
+          psql "$DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name = 'payload_locked_documents_rels' ORDER BY column_name;"
+          REMOTE
+          )
+          [ -n "$LOCKED_COLS" ] || { echo "::error::не прочитали колонки payload_locked_documents_rels на проде — «не смогли проверить» это не «всё в порядке»"; exit 1; }
+
           DRIFT=""
-          for c in web/src/collections/*.ts; do
-            SLUG=$(sed -nE "s/^[[:space:]]*slug:[[:space:]]*'([a-z_-]+)'.*/\1/p" "$c" | head -1)
-            [ -n "$SLUG" ] || continue
-            COL="$(printf '%s' "$SLUG" | tr '-' '_')_id"
-            printf '%s\n' "$LOCKED_COLS" | grep -qxF "$COL" || DRIFT="$DRIFT $SLUG"
+          for slug in $SLUGS; do
+            COL="$(printf '%s' "$slug" | tr '-' '_')_id"
+            printf '%s\n' "$LOCKED_COLS" | grep -qxF "$COL" || DRIFT="$DRIFT $slug"
           done
           NCOLS=$(printf '%s\n' "$LOCKED_COLS" | grep -v '^parent_id$' | grep -c '_id$' || true)
+
           if [ -n "$DRIFT" ]; then
             echo "::error::G231: в payload_locked_documents_rels нет колонки для коллекций:$DRIFT — админка ляжет при первом открытии документа"
             exit 1
           fi
-          echo "G231: колонок *_id в payload_locked_documents_rels = $NCOLS, все коллекции конфига на месте"
+          if [ "$NCOLS" != "$NSLUGS" ]; then
+            echo "::error::G231: колонок *_id на проде $NCOLS, коллекций в конфиге $NSLUGS — расхождение разбирать руками"
+            exit 1
+          fi
+          echo "G231: колонок $NCOLS = коллекций $NSLUGS, чисто"
 
       - uses: actions/setup-node@v5
         with:
@@ -311,13 +360,21 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "сессия vault открыта (canWrite=$CANWRITE)"
 
-          # Один trap на шаг: самоотзыв сессии + уборка всех временных файлов.
+          # Один trap на сигнал: самоотзыв сессии, уборка временных файлов на
+          # раннере И на боксе. Файлы с живым ключом уезжают в /tmp общего бокса,
+          # где живут соседние сайты, а удаление внутри удалённого скрипта не
+          # выполнится, если сессия оборвётся раньше — поэтому чистим отсюда тоже.
           cleanup() {
             curl -sS -X DELETE "$VAULT_URL/api/secrets/session" -H "Authorization: Bearer $TOKEN" \
               -o /dev/null -w 'DELETE /session → %{http_code}\n' 2>/dev/null || true
-            rm -f session.json resp.json gw-key.txt eco-key.txt gw.env body.json
+            ssh -o ConnectTimeout=10 dkmalmyzh 'rm -f /tmp/gw-key.txt /tmp/gw-body.json /tmp/gw-wall.json /tmp/gw.env /tmp/gw-url.txt' >/dev/null 2>&1 || true
+            rm -f session.json resp.json gw-key.txt eco-key.txt gw.env body.json gw-url.txt
           }
-          trap cleanup EXIT INT TERM
+          trap cleanup EXIT
+          # Обработчик сигнала в bash отрабатывает и ВОЗВРАЩАЕТ исполнение на
+          # следующую команду. Без явного exit отменённый прогон продолжил бы шаг
+          # уже без файлов ключей и записал бы в прод-env пустые значения.
+          trap 'cleanup; exit 130' INT TERM INT TERM
 
           fetch_key() {
             local name="$1" out="$2" code
@@ -329,32 +386,52 @@ jobs:
             [ -n "$val" ] || { echo "::warning::$name: 200, но значение пустое"; return 1; }
             echo "::add-mask::$val"
             printf '%s' "$val" > "$out"
-            echo "$name: длина ${#val}, sha256 $(printf '%s' "$val" | sha256sum | cut -c1-12)…"
+            # Ни длины, ни префикса хеша: маска закрывает само значение, но не
+            # производные от него, а лог публичный. Префикс sha256 работал бы
+            # офлайн-оракулом для проверки украденного кандидата без обращения к
+            # шлюзу, а длина сужает перебор. Достаточно факта получения.
+            echo "$name: получен"
           }
           fetch_key GATEWAY_KEY_DKMALMYZH gw-key.txt
           fetch_key ECOSYSTEM_KEY eco-key.txt
 
           # Проба на шлюзе с бокса, которая краснеет.
+          #
+          # Адрес шлюза едет файлом, а не аргументом ssh: аргумент склеивается в
+          # командную строку удалённого процесса и виден соседям по общему боксу в
+          # `ps`, а также попадает в аудит-логи sshd. В env-файле прода (640) этот
+          # адрес соседям недоступен — argv расширил бы круг читателей. Заодно
+          # снимается разбор спецсимволов адреса удалённым шеллом.
           echo '{"method":"wall.get","params":{"owner_id":-218991929,"count":1}}' > body.json
+          printf '%s' "$GATEWAY_URL" > gw-url.txt
           scp -q gw-key.txt dkmalmyzh:/tmp/gw-key.txt
           scp -q body.json dkmalmyzh:/tmp/gw-body.json
-          ssh dkmalmyzh 'bash -s' "$GATEWAY_URL" <<'REMOTE'
+          scp -q gw-url.txt dkmalmyzh:/tmp/gw-url.txt
+          ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -eo pipefail
-          GW="$1"
+          # Свой trap на удалённой стороне: обрыв ssh-сессии убивает этот bash, и
+          # без trap файл с живым ключом остался бы в /tmp общего бокса навсегда.
+          trap 'rm -f /tmp/gw-key.txt /tmp/gw-body.json /tmp/gw-wall.json /tmp/gw-url.txt' EXIT INT TERM
+          GW=$(cat /tmp/gw-url.txt)
           KEY=$(cat /tmp/gw-key.txt)
           code=$(curl -s -o /tmp/gw-wall.json -w '%{http_code}' --max-time 60 \
             -X POST "$GW/api/gateway/call" -H "X-API-Key: $KEY" \
             -H 'Content-Type: application/json' --data-binary @/tmp/gw-body.json) || code="curl-exit-$?"
           echo "wall.get своим ключом: HTTP $code"
           if [ "$code" != "200" ] || ! grep -q '"ok": *true' /tmp/gw-wall.json; then
-            echo "::warning::шлюз не принял ключ"; head -c 300 /tmp/gw-wall.json; echo
-            rm -f /tmp/gw-key.txt /tmp/gw-body.json /tmp/gw-wall.json; exit 1
+            # Тело ответа в публичный лог не печатаем: это ответ ЧУЖОЙ
+            # инфраструктуры, и в самом вероятном сценарии отказа (шлюз за прокси
+            # отдал 502, приложение — ECONNREFUSED) там лежит внутренний адрес или
+            # имя апстрима, которых D-038 в публичном логе быть не должно.
+            # Печатаем форму: код, размер и поле error, если оно есть.
+            echo "::warning::шлюз не принял ключ: HTTP $code, тело $(wc -c < /tmp/gw-wall.json) байт"
+            grep -o '"error"[^,}]*' /tmp/gw-wall.json | head -1 | cut -c1-80 || true
+            exit 1
           fi
           WRONG_KEY=$(printf 'wrong-%s' "$RANDOM")
           bad=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 \
             -X POST "$GW/api/gateway/call" -H "X-API-Key: $WRONG_KEY" \
             -H 'Content-Type: application/json' --data-binary @/tmp/gw-body.json) || bad="curl-exit-$?"
-          rm -f /tmp/gw-key.txt /tmp/gw-body.json /tmp/gw-wall.json
           echo "wall.get неверным ключом: HTTP $bad"
           [ "$bad" = "401" ] || { echo "::warning::неверный ключ не отвергнут ($bad) — проба ничего не доказывает"; exit 1; }
           echo "ключ читает стену, чужой ключ получает 401"
@@ -363,6 +440,16 @@ jobs:
           # Запись в env бокса — идемпотентно. INTERNAL_OPS_SECRET, если его ещё нет,
           # генерируется на месте: это секрет запуска служебных маршрутов, значение
           # нужно только боксу. Рестарт — чтобы приложение и таймер прочитали env.
+          #
+          # Перед записью — проверка непустых файлов. `echo "КЛЮЧ=$(cat f)"` под
+          # `set -e` шаг НЕ роняет (статусом остаётся статус echo), поэтому пустой
+          # или исчезнувший файл тихо превратился бы в `SARAFAN_GATEWAY_KEY=`, а
+          # запись на боксе сперва удаляет действующие строки и только потом
+          # дописывает приехавшие — прод остался бы без ключа шлюза.
+          [ -s gw-key.txt ] && [ -s eco-key.txt ] || {
+            echo "::warning::файлы ключей пусты — в env ничего не пишем"
+            exit 1
+          }
           {
             echo "SARAFAN_GATEWAY_URL=$GATEWAY_URL"
             echo "SARAFAN_GATEWAY_KEY=$(cat gw-key.txt)"
@@ -371,17 +458,23 @@ jobs:
           scp -q gw.env dkmalmyzh:/tmp/gw.env
           ssh dkmalmyzh 'sudo bash -s' <<'REMOTE'
           set -e
+          trap 'rm -f /tmp/gw.env' EXIT INT TERM
           ENV=/etc/dkmalmyzh/dkmalmyzh.env
-          test -f "$ENV" || { echo "::warning::$ENV нет"; rm -f /tmp/gw.env; exit 1; }
+          test -f "$ENV" || { echo "::warning::$ENV нет"; exit 1; }
+          # Второй рубеж против пустого значения: до sed -i, который вырезает
+          # действующие строки. Строка вида `КЛЮЧ=` в приехавшем файле означает,
+          # что на раннере что-то пошло не так, и переписывать env нельзя.
+          if grep -qE '^(SARAFAN_GATEWAY_KEY|ECOSYSTEM_KEY|SARAFAN_GATEWAY_URL)=$' /tmp/gw.env; then
+            echo "::warning::в приехавшем файле есть пустое значение — env не трогаем"
+            exit 1
+          fi
           if cmp -s <(grep -E '^(SARAFAN_GATEWAY_URL|SARAFAN_GATEWAY_KEY|ECOSYSTEM_KEY)=' "$ENV" | sort) <(sort /tmp/gw.env) \
              && grep -q '^INTERNAL_OPS_SECRET=.' "$ENV"; then
-            rm -f /tmp/gw.env
             echo "env без изменений — рестарт не нужен"
             exit 0
           fi
           sed -i '/^SARAFAN_GATEWAY_URL=/d; /^SARAFAN_GATEWAY_KEY=/d; /^ECOSYSTEM_KEY=/d' "$ENV"
           cat /tmp/gw.env >> "$ENV"
-          rm -f /tmp/gw.env
           if ! grep -q '^INTERNAL_OPS_SECRET=.' "$ENV"; then
             echo "INTERNAL_OPS_SECRET=$(openssl rand -hex 32)" >> "$ENV"
             echo "INTERNAL_OPS_SECRET сгенерирован"
@@ -398,7 +491,7 @@ jobs:
       - name: Установить таймер импорта из ВК
         run: |
           set -e
-          scp -q deploy/dkmalmyzh-vk-sync.service deploy/dkmalmyzh-vk-sync.timer dkmalmyzh:/tmp/
+          scp -q deploy/dkmalmyzh-vk-sync.service deploy/dkmalmyzh-vk-sync.timer deploy/dkmalmyzh-vk-sync-run.sh dkmalmyzh:/tmp/
           ssh dkmalmyzh 'bash -s' <<'REMOTE'
           set -e
           changed=0
@@ -409,6 +502,12 @@ jobs:
             fi
             rm -f "/tmp/$unit"
           done
+          # Обёртка запуска: юнит зовёт её, а не голый curl (тело ответа и трактовка 409).
+          if ! sudo cmp -s /tmp/dkmalmyzh-vk-sync-run.sh /usr/local/bin/dkmalmyzh-vk-sync-run.sh; then
+            sudo cp /tmp/dkmalmyzh-vk-sync-run.sh /usr/local/bin/dkmalmyzh-vk-sync-run.sh
+            sudo chmod 755 /usr/local/bin/dkmalmyzh-vk-sync-run.sh
+          fi
+          rm -f /tmp/dkmalmyzh-vk-sync-run.sh
           [ "$changed" = "1" ] && sudo systemctl daemon-reload || true
 
           # Значения читаем, но НЕ печатаем: журнал прогона публичный.

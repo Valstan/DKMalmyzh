@@ -69,10 +69,26 @@ jobs:
           CFG
           chmod 600 ~/.ssh/config
 
+      # ⚠️ Значения inputs НЕ интерполируются в тело `run:`. Подстановка `${{ }}`
+      # вставляет текст до того, как bash разберёт строку: кавычка внутри slug
+      # разрывает команду и выполняет что угодно в шаге, где рядом лежит приватный
+      # деплой-ключ прода, а лог прогона публичный. Значения приходят через `env:`
+      # и читаются как переменные; slug дополнительно сверяется с формой slug.
       - name: Запустить операцию
+        env:
+          OPERATION: ${{ inputs.operation }}
+          SLUG: ${{ inputs.slug }}
         run: |
           set -e
-          ssh dkmalmyzh 'bash -s' "${{ inputs.operation }}" "${{ inputs.slug }}" <<'REMOTE'
+          case "$OPERATION" in
+            seed-institutions|vk-sync) ;;
+            *) echo "::error::неизвестная операция"; exit 1 ;;
+          esac
+          if [ -n "$SLUG" ] && ! printf '%s' "$SLUG" | grep -qE '^[a-z0-9-]{1,64}$'; then
+            echo "::error::slug должен быть строчными латинскими буквами, цифрами и дефисом"
+            exit 1
+          fi
+          ssh dkmalmyzh 'bash -s' "$OPERATION" "$SLUG" <<'REMOTE'
           set -euo pipefail
           OP="$1"
           SLUG="${2:-}"
@@ -97,5 +113,12 @@ jobs:
           cat /tmp/internal-op.json; echo
           rm -f /tmp/internal-op.json
 
+          # 409 — не отказ, а честный ответ «уже идёт»: маршрут держит замок, и
+          # ручной запуск поверх таймера отвергается по построению. Красить прогон
+          # в этом случае значит приучать смотреть на красный как на норму.
+          if [ "$code" = "409" ]; then
+            echo "операция уже идёт — запускать вторую не нужно"
+            exit 0
+          fi
           [ "$code" = "200" ] || { echo "::error::операция $OP вернула $code"; exit 1; }
           REMOTE
