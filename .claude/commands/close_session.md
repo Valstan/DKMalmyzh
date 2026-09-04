@@ -40,12 +40,17 @@ gh pr list --state open
 
 ## Шаг 5. Закоммитить handoff через docs-PR
 
+Предпочтительно handoff едет **тем же PR, что и шаг работы** (D-066): тогда отдельного закрытия не существует. Отдельный docs-PR — когда шаг сделан словами в чате и в файлы не попал.
+
+Сообщение коммита и тело PR — **файлом** (D-046, там кириллица и тире): записать в `.git/HANDOFF_MSG.txt` и `.git/HANDOFF_PR.md` инструментом записи, команде отдать путь.
+
 ```bash
 git checkout -b docs/handoff-<slug>
 git add docs/SESSION_HANDOFF.md
-git commit -m "docs: handoff — <резюме>"
+git commit -F .git/HANDOFF_MSG.txt
 git push -u origin docs/handoff-<slug>
-gh pr create ... ; gh pr merge --squash --delete-branch
+gh pr create --title "docs: handoff" --body-file .git/HANDOFF_PR.md
+gh pr merge --squash --delete-branch --auto
 git checkout main && git pull --ff-only
 ```
 
