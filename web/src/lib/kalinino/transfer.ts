@@ -13,7 +13,9 @@ import {
   normalizeVideos,
   parseHandover,
   postTypeFor,
+  resolveHandoverDuplicates,
   type SlugCollision,
+  type SlugRename,
   type TransferablePost,
 } from './handover'
 
@@ -61,6 +63,8 @@ export type TransferSummary = {
   }
   plan: { create: number; update: number }
   collisions: SlugCollision[]
+  /** Повторы адресов внутри выгрузки, решённые автоматически (см. handover.ts). */
+  renamed: SlugRename[]
   media: {
     files: number
     missing: number
@@ -108,6 +112,7 @@ export async function transferKalinino(
     source: { posts: 0, published: 0, drafts: 0, withoutKey: 0, categories: 0 },
     plan: { create: 0, update: 0 },
     collisions: [],
+    renamed: [],
     media: { files: 0, missing: 0, uploaded: 0, reused: 0, kept: 0 },
     videos: { posts: 0, total: 0 },
     sourceUrl: { present: 0, missing: 0 },
@@ -171,7 +176,12 @@ export async function transferKalinino(
     if (typeof doc.slug === 'string' && doc.slug) bySlug.set(doc.slug, { vkUid: doc.vkUid, id: doc.id })
   }
 
-  // 4. Коллизии адресов — условие выхода.
+  // 4. Повторы внутри выгрузки решаются как на их сайте; коллизии с чужими
+  // записями портала — условие выхода.
+  summary.renamed = resolveHandoverDuplicates(posts)
+  for (const r of summary.renamed) {
+    say(`адрес «${r.from}» повторяется в выгрузке: запись ${r.vkPostId} получает «${r.to}» (новейшая оставляет адрес)`)
+  }
   summary.collisions = findSlugCollisions(posts, bySlug)
   for (const c of summary.collisions) {
     say(
@@ -220,7 +230,7 @@ export async function transferKalinino(
       `медиа ${summary.media.files} файлов, отсутствует ${summary.media.missing}; ` +
       `видео у ${summary.videos.posts} записей (${summary.videos.total}); ` +
       `sourceUrl есть у ${summary.sourceUrl.present}, нет у ${summary.sourceUrl.missing}; ` +
-      `коллизий адресов ${summary.collisions.length}`,
+      `коллизий адресов ${summary.collisions.length}, переназначено внутри выгрузки ${summary.renamed.length}`,
   )
 
   if (summary.collisions.length > 0) {

@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import path from 'path'
 import { getPayload } from 'payload'
 
+import type { HandoverPost } from '../src/lib/kalinino/handover'
 import { transferKalinino } from '../src/lib/kalinino/transfer'
 
 // Гейт переноса Калинино (D-074): прогон ядра на выгрузке той же формы, что
@@ -47,7 +48,7 @@ const lexical = (text: string) => ({
   },
 })
 
-const POSTS = [
+const POSTS: HandoverPost[] = [
   {
     id: 1,
     title: 'Концерт ко Дню села',
@@ -106,6 +107,10 @@ const POSTS = [
     content: lexical('Новость'),
   },
 ]
+
+// Повтор адреса внутри выгрузки: у Калинино slug не уникален. Новейшая (id 4)
+// оставляет адрес, старшая (id 1) должна получить хвост из vkPostId.
+POSTS.push({ ...POSTS[1], id: 4, slug: 'koncert-ko-dnyu-sela', vkPostId: `${OWNER}_4`, status: 'published', publishedAt: '2026-08-27T10:00:00.000Z' })
 
 const CATEGORIES = [
   { id: 1, title: 'Афиша', slug: 'afisha', order: 0 },
@@ -172,9 +177,10 @@ const main = async () => {
   const dry = await transferKalinino(payload, { ...opts, dryRun: true })
   console.log(`сухой: план создать ${dry.plan.create}, обновить ${dry.plan.update}, коллизий ${dry.collisions.length}`)
   if (!dry.ok || dry.blocked) problems.push(`сухой прогон заблокирован: ${dry.blocked}`)
-  if (dry.plan.create !== 2 || dry.plan.update !== 1) problems.push(`план ${dry.plan.create}/${dry.plan.update}, ожидалось 2/1`)
+  if (dry.plan.create !== 3 || dry.plan.update !== 1) problems.push(`план ${dry.plan.create}/${dry.plan.update}, ожидалось 3/1`)
+  if (dry.renamed.length !== 1 || dry.renamed[0]?.vkPostId !== `${OWNER}_1`) problems.push(`повтор адреса решён неверно: ${JSON.stringify(dry.renamed)}`)
   if (dry.videos.posts !== 1 || dry.videos.total !== 2) problems.push(`видео в плане ${dry.videos.posts}/${dry.videos.total}, ожидалось 1/2`)
-  if (dry.sourceUrl.present !== 2 || dry.sourceUrl.missing !== 1) problems.push(`sourceUrl в плане ${dry.sourceUrl.present}/${dry.sourceUrl.missing}`)
+  if (dry.sourceUrl.present !== 3 || dry.sourceUrl.missing !== 1) problems.push(`sourceUrl в плане ${dry.sourceUrl.present}/${dry.sourceUrl.missing}`)
   if (dry.media.files !== 4) problems.push(`файлов медиа в плане ${dry.media.files}, ожидалось 4`)
   if ((await payload.count({ collection: 'posts' })).totalDocs !== postsBefore) problems.push('сухой прогон создал записи')
   if ((await payload.count({ collection: 'media' })).totalDocs !== mediaBefore) problems.push('сухой прогон загрузил медиа')
@@ -183,15 +189,19 @@ const main = async () => {
   const first = await transferKalinino(payload, { ...opts, dryRun: false })
   console.log(`боевой: создано ${first.result.created}, обновлено ${first.result.updated}, с ошибкой ${first.result.failed}`)
   if (!first.ok) problems.push(`боевой прогон не ok: ${first.blocked ?? first.messages.at(-1)}`)
-  if (first.result.created !== 2 || first.result.updated !== 1 || first.result.failed !== 0)
-    problems.push(`результат ${first.result.created}/${first.result.updated}/${first.result.failed}, ожидалось 2/1/0`)
+  if (first.result.created !== 3 || first.result.updated !== 1 || first.result.failed !== 0)
+    problems.push(`результат ${first.result.created}/${first.result.updated}/${first.result.failed}, ожидалось 3/1/0`)
   if (first.media.uploaded !== 3) problems.push(`загружено медиа ${first.media.uploaded}, ожидалось 3`)
   if (first.media.kept !== 1) problems.push(`оставлено своё медиа ${first.media.kept}, ожидалось 1`)
 
   const concert = (
     await payload.find({ collection: 'posts', where: { vkUid: { equals: `${OWNER}_1` } }, depth: 0, limit: 1 })
   ).docs[0]
-  if (concert?.slug !== 'koncert-ko-dnyu-sela') problems.push(`slug не сохранён из выгрузки: «${concert?.slug}»`)
+  if (concert?.slug !== 'koncert-ko-dnyu-sela-900000021-1') problems.push(`старшая запись повтора не получила хвост: «${concert?.slug}»`)
+  const newest = (
+    await payload.find({ collection: 'posts', where: { vkUid: { equals: `${OWNER}_4` } }, depth: 0, limit: 1 })
+  ).docs[0]
+  if (newest?.slug !== 'koncert-ko-dnyu-sela') problems.push(`новейшая запись повтора не оставила адрес: «${newest?.slug}»`)
   if (concert?._status !== 'published') problems.push('публикация владельца не перенесена')
   if (!concert?.cover) problems.push('обложка не проставилась')
   if ((concert?.gallery ?? []).length !== 2) problems.push(`в галерее ${(concert?.gallery ?? []).length}, ожидалось 2`)
@@ -225,7 +235,7 @@ const main = async () => {
   if (second.result.failed !== 0) problems.push(`повторный прогон: ошибок ${second.result.failed}`)
   if (second.media.uploaded !== 0) problems.push(`повторный прогон загрузил медиа ${second.media.uploaded}`)
   if ((await payload.count({ collection: 'media' })).totalDocs !== mediaAfterFirst) problems.push('число медиа изменилось на повторе')
-  if ((await payload.count({ collection: 'posts' })).totalDocs !== postsBefore + 2) problems.push('число записей изменилось на повторе')
+  if ((await payload.count({ collection: 'posts' })).totalDocs !== postsBefore + 3) problems.push('число записей изменилось на повторе')
 
   // 4. Коллизия адреса с чужой записью — боевой прогон не начинается.
   await payload.create({

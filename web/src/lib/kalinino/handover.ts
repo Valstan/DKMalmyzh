@@ -158,6 +158,43 @@ export function isSafeHandoverDir(value: string): boolean {
   return !value.split('/').some((part) => part === '..')
 }
 
+export type SlugRename = { vkPostId: string; from: string; to: string }
+
+/**
+ * Повторы адресов ВНУТРИ выгрузки — решаются автоматически, а не блокируют.
+ *
+ * У Калинино slug не уникален, и на их сайте две записи под одним адресом уже
+ * жили так: страница `/news/<slug>` ищет с limit 1 без сортировки, то есть по
+ * умолчанию Payload — новейшая первой. Значит по этому адресу открывалась
+ * НОВЕЙШАЯ запись, а старшая была недоступна. Переносим ровно это поведение:
+ * запись с наибольшим id оставляет адрес, остальные получают хвост из
+ * vkPostId (форма нашего импорта). Редирект путь-в-путь для такого адреса
+ * ведёт туда же, куда вёл их сайт, — карта редиректов не нужна.
+ *
+ * Коллизии с ЧУЖИМИ записями портала сюда не относятся: их решает человек.
+ */
+export function resolveHandoverDuplicates(posts: TransferablePost[]): SlugRename[] {
+  const bySlug = new Map<string, TransferablePost[]>()
+  for (const post of posts) {
+    const list = bySlug.get(post.slug) ?? []
+    list.push(post)
+    bySlug.set(post.slug, list)
+  }
+  const renames: SlugRename[] = []
+  for (const [slug, list] of bySlug) {
+    if (list.length < 2) continue
+    const keeper = list.reduce((best, p) => (p.id > best.id ? p : best), list[0])
+    for (const post of list) {
+      if (post === keeper) continue
+      const tail = post.vkPostId.replace(/[^0-9]+/g, '-').replace(/^-|-$/g, '')
+      const to = `${slug}-${tail}`
+      renames.push({ vkPostId: post.vkPostId, from: slug, to })
+      post.slug = to
+    }
+  }
+  return renames.sort((a, b) => a.from.localeCompare(b.from) || a.vkPostId.localeCompare(b.vkPostId))
+}
+
 export type SlugCollision = {
   slug: string
   /** vkPostId записей выгрузки под этим адресом. */

@@ -9,6 +9,7 @@ import {
   normalizeVideos,
   parseHandover,
   postTypeFor,
+  resolveHandoverDuplicates,
 } from './handover'
 
 // Чистый разбор выгрузки Калинино. Форма данных — как у export.sql их репозитория.
@@ -126,5 +127,26 @@ describe('коллизии адресов', () => {
   it('та же запись по vkUid — не коллизия, она обновится', () => {
     const taken = new Map([['prazdnik', { vkUid: '-1_3', id: 10 }]])
     expect(findSlugCollisions(posts.slice(2, 3), taken)).toEqual([])
+  })
+})
+
+describe('повторы адресов внутри выгрузки', () => {
+  it('новейшая запись оставляет адрес, старшие получают хвост из vkPostId', () => {
+    const posts = [
+      { id: 40, title: 'А', slug: 'uvazhaemye-druzya', vkPostId: '-218_1040' },
+      { id: 57, title: 'Б', slug: 'uvazhaemye-druzya', vkPostId: '-218_1057' },
+      { id: 3, title: 'В', slug: 'drugoy', vkPostId: '-218_3' },
+    ]
+    const renames = resolveHandoverDuplicates(posts)
+    expect(renames).toEqual([{ vkPostId: '-218_1040', from: 'uvazhaemye-druzya', to: 'uvazhaemye-druzya-218-1040' }])
+    expect(posts[1].slug).toBe('uvazhaemye-druzya')
+    expect(posts[0].slug).toBe('uvazhaemye-druzya-218-1040')
+    expect(findSlugCollisions(posts, new Map())).toEqual([])
+  })
+
+  it('без повторов ничего не переименовывает', () => {
+    const posts = [{ id: 1, title: 'А', slug: 'a', vkPostId: '-1_1' }]
+    expect(resolveHandoverDuplicates(posts)).toEqual([])
+    expect(posts[0].slug).toBe('a')
   })
 })
