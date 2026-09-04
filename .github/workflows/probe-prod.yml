@@ -1,0 +1,98 @@
+name: Probe prod (manual, read-only)
+
+# Диагностика состояния прода без единого изменения: жив ли сервис, идёт ли
+# импорт из ВК, что в журнале, сколько документов в БД. Запускается вручную.
+#
+# Зачем отдельный воркфлоу: служебные операции (`internal-run.yml`) ждут ответа
+# приложения через curl, и когда операция длиннее таймаута, результат теряется —
+# прогон красный, а на боксе работа продолжается. Здесь смотрим на факт, а не на
+# ответ: активность юнитов и счётчики в БД.
+#
+# Лог прогона публичный (D-038): `systemctl show` вместо `status` (без путей),
+# `journalctl -o cat` (без хостнейма в префиксе), строки подключения режутся.
+
+on:
+  workflow_dispatch:
+    inputs:
+      journal_lines:
+        description: 'Сколько строк журнала приложения показать'
+        required: false
+        default: '60'
+        type: string
+
+concurrency:
+  group: probe-prod
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+        run: |
+          set -e
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_PORT" ]; then
+            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / secrets.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_dkmalmyzh
+          chmod 600 ~/.ssh/id_ed25519_dkmalmyzh
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          cat > ~/.ssh/config <<CFG
+          Host dkmalmyzh
+            HostName $DEPLOY_SSH_HOST
+            Port $DEPLOY_SSH_PORT
+            User valstan
+            IdentityFile ~/.ssh/id_ed25519_dkmalmyzh
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Юниты и журнал
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          LINES: ${{ inputs.journal_lines }}
+        run: |
+          redact() {
+            sed -E -e 's#(postgres(ql)?://)[^[:space:]]*#\1<redacted>#g' \
+                   -e "s#${DEPLOY_SSH_HOST}#<host>#g" \
+                   -e 's#/home/[^/[:space:]]+#/home/<user>#g'
+          }
+          ssh dkmalmyzh 'bash -s' "$LINES" <<'REMOTE' 2>&1 | redact
+          set -e
+          N="$1"
+          echo "== dkmalmyzh: $(systemctl is-active dkmalmyzh) · $(systemctl show dkmalmyzh -p NRestarts,ExecMainStartTimestamp --value | tr '\n' ' ')"
+          echo "== vk-sync.service: $(systemctl is-active dkmalmyzh-vk-sync.service) · $(systemctl show dkmalmyzh-vk-sync.service -p Result,ExecMainStartTimestamp,ExecMainExitTimestamp --value | tr '\n' ' ')"
+          echo "== vk-sync.timer: $(systemctl is-active dkmalmyzh-vk-sync.timer) · next: $(systemctl show dkmalmyzh-vk-sync.timer -p NextElapseUSecRealtime --value)"
+          echo "== процессы node: $(pgrep -c -f 'server.js' || echo 0)"
+          echo "== журнал приложения, последние $N строк (без префикса) =="
+          sudo journalctl -u dkmalmyzh -n "$N" --no-pager -o cat
+          echo "== журнал vk-sync.service, последние 20 строк =="
+          sudo journalctl -u dkmalmyzh-vk-sync.service -n 20 --no-pager -o cat
+          REMOTE
+
+      - name: Счётчики в БД
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+        run: |
+          redact() {
+            sed -E -e 's#(postgres(ql)?://)[^[:space:]]*#\1<redacted>#g' -e "s#${DEPLOY_SSH_HOST}#<host>#g"
+          }
+          ssh dkmalmyzh 'bash -s' <<'REMOTE' 2>&1 | redact
+          set -e
+          DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
+          [ -n "$DB" ] || { echo "::error::DATABASE_URI не прочитан"; exit 1; }
+          psql "$DB" -tAc "SELECT 'institutions: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||')' FROM institutions;"
+          psql "$DB" -tAc "SELECT 'posts: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||', from vk '||count(*) FILTER (WHERE source='vk')||')' FROM posts;"
+          psql "$DB" -tAc "SELECT 'media: '||count(*) FROM media;"
+          psql "$DB" -tAc "SELECT 'vk sources resolved: '||count(*) FILTER (WHERE owner_id IS NOT NULL)||' / '||count(*) FROM institutions_vk_sources;"
+          psql "$DB" -tAc "SELECT 'posts by institution: '||string_agg(i.slug||'='||c, ', ' ORDER BY c DESC) FROM (SELECT institution_id, count(*) c FROM posts WHERE institution_id IS NOT NULL GROUP BY institution_id) p JOIN institutions i ON i.id=p.institution_id;"
+          REMOTE
