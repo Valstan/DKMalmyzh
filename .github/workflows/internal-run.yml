@@ -26,10 +26,16 @@ on:
         options:
           - seed-institutions
           - vk-sync
+          - reslug-vk
       slug:
         description: 'Только одно учреждение (slug); пусто — все. Работает для vk-sync'
         required: false
         type: string
+      dry_run:
+        description: 'Только показать план, ничего не менять (reslug-vk)'
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: prod-internal-ops
@@ -78,20 +84,23 @@ jobs:
         env:
           OPERATION: ${{ inputs.operation }}
           SLUG: ${{ inputs.slug }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -e
           case "$OPERATION" in
-            seed-institutions|vk-sync) ;;
+            seed-institutions|vk-sync|reslug-vk) ;;
             *) echo "::error::неизвестная операция"; exit 1 ;;
           esac
           if [ -n "$SLUG" ] && ! printf '%s' "$SLUG" | grep -qE '^[a-z0-9-]{1,64}$'; then
             echo "::error::slug должен быть строчными латинскими буквами, цифрами и дефисом"
             exit 1
           fi
-          ssh dkmalmyzh 'bash -s' "$OPERATION" "$SLUG" <<'REMOTE'
+          case "$DRY_RUN" in true|false|'') ;; *) echo "::error::dry_run — только true/false"; exit 1 ;; esac
+          ssh dkmalmyzh 'bash -s' "$OPERATION" "$SLUG" "$DRY_RUN" <<'REMOTE'
           set -euo pipefail
           OP="$1"
           SLUG="${2:-}"
+          DRY="${3:-false}"
 
           SECRET=$(sudo grep '^INTERNAL_OPS_SECRET=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^INTERNAL_OPS_SECRET=//;s/^"//;s/"$//')
           if [ -z "$SECRET" ]; then
@@ -101,7 +110,10 @@ jobs:
 
           URL="http://127.0.0.1:3005/internal/$OP"
           if [ -n "$SLUG" ]; then URL="$URL?slug=$SLUG"; fi
-          echo "запускаю $OP"
+          if [ "$DRY" = "true" ]; then
+            case "$URL" in *\?*) URL="$URL&dry=1" ;; *) URL="$URL?dry=1" ;; esac
+          fi
+          echo "запускаю $OP${DRY:+ (dry=$DRY)}"
 
           # -o в файл, а не в stdout: ответ печатаем сами, отдельной командой,
           # чтобы код возврата curl не потерялся в конвейере.
