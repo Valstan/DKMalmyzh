@@ -2,6 +2,10 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
 import {
+  CI_DRAFT_INSTITUTION_SLUG,
+  CI_DRAFT_INSTITUTION_TITLE,
+  CI_DRAFT_POST_SLUG,
+  CI_DRAFT_POST_TITLE,
   CI_EVENT_TITLE,
   CI_INSTITUTION_SLUG,
   CI_INSTITUTION_TITLE_UPDATED,
@@ -139,15 +143,54 @@ test.describe('публичные страницы открываются в б�
   // Канонический адрес задаётся постранично. Пока он жил в корневом layout, ВСЕ
   // страницы объявляли канонической главную, и раздел выпадал из индекса при
   // живом sitemap — расхождение, которое снаружи ничем себя не выдаёт.
+  //
+  // Отсутствие тега — тоже отказ: сравнение с fallback («нет тега → считаем, что
+  // там '/'») зеленело бы ровно в том случае, ради которого тест написан.
   test('страницы объявляют канониклом себя, а не главную', async ({ page }) => {
-    for (const path of ['/prazdniki', '/news', '/dk']) {
+    for (const path of ['/prazdniki', '/news', '/dk', '/']) {
       await page.goto(path)
       const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
-      expect(canonical, `canonical на ${path}`).toContain(path)
+      expect(canonical, `нет canonical на ${path}`).not.toBeNull()
+      const pathname = new URL(canonical as string).pathname.replace(/\/$/, '') || '/'
+      expect(pathname, `canonical на ${path}`).toBe(path === '/' ? '/' : path)
     }
-    await page.goto('/')
-    const home = await page.locator('link[rel="canonical"]').getAttribute('href')
-    expect(home?.replace(/^https?:\/\/[^/]+/, '') || '/').toBe('/')
+  })
+
+  // Негативные проверки. Позитивных мало: они одинаково зелены и когда фильтр
+  // `_status` работает, и когда его сняли, — если в базе нет ни одного черновика.
+  // Сид кладёт черновик новости и черновик учреждения специально ради этих трёх
+  // проверок; на проде черновиков сотни, и утечка любого из них в публичную ленту
+  // означает чужой материал, показанный без решения редакции.
+  test('черновик новости не виден нигде и отдаёт 404 по прямой ссылке', async ({ page }) => {
+    await withoutPageErrors(page, async () => {
+      await page.goto('/news')
+      await expect(page.getByRole('link', { name: CI_DRAFT_POST_TITLE })).toHaveCount(0)
+      await page.goto('/')
+      await expect(page.getByRole('link', { name: CI_DRAFT_POST_TITLE })).toHaveCount(0)
+      await page.goto(`/dk/${CI_INSTITUTION_SLUG}`)
+      await expect(page.getByRole('link', { name: CI_DRAFT_POST_TITLE })).toHaveCount(0)
+    })
+    const res = await page.goto(`/news/${CI_DRAFT_POST_SLUG}`)
+    expect(res?.status()).toBe(404)
+  })
+
+  test('черновик учреждения не виден в каталоге и отдаёт 404', async ({ page }) => {
+    await withoutPageErrors(page, async () => {
+      await page.goto('/dk')
+      await expect(page.getByRole('link', { name: CI_DRAFT_INSTITUTION_TITLE })).toHaveCount(0)
+    })
+    const res = await page.goto(`/dk/${CI_DRAFT_INSTITUTION_SLUG}`)
+    expect(res?.status()).toBe(404)
+  })
+
+  test('черновиков нет в sitemap', async ({ request }) => {
+    const res = await request.get('/sitemap.xml')
+    expect(res.status()).toBe(200)
+    const xml = await res.text()
+    expect(xml).not.toContain(CI_DRAFT_POST_SLUG)
+    expect(xml).not.toContain(CI_DRAFT_INSTITUTION_SLUG)
+    // Контроль: опубликованное в карте быть обязано, иначе тест зелен на пустой карте.
+    expect(xml).toContain(CI_POST_SLUG)
   })
 
   test('несуществующая новость даёт 404, а не пустую страницу', async ({ page }) => {

@@ -374,7 +374,7 @@ jobs:
           # Обработчик сигнала в bash отрабатывает и ВОЗВРАЩАЕТ исполнение на
           # следующую команду. Без явного exit отменённый прогон продолжил бы шаг
           # уже без файлов ключей и записал бы в прод-env пустые значения.
-          trap 'cleanup; exit 130' INT TERM INT TERM
+          trap 'cleanup; exit 130' INT TERM
 
           fetch_key() {
             local name="$1" out="$2" code
