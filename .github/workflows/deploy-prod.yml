@@ -36,6 +36,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # id-token — паспорт КАРМАНа (ADR-0012, D-061): шаг «Ключи шлюза из vault по
+    # паспорту» предъявляет OIDC-удостоверение прогона вместо хранимого токена.
+    permissions:
+      contents: read
+      id-token: write
 
     services:
       postgres:
@@ -95,6 +100,8 @@ jobs:
           DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
           [ -n "$DB" ] || exit 3
           psql "$DB" -tAc "SELECT name FROM payload_migrations ORDER BY name;"
+          echo "---LOCKED---"
+          psql "$DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name = 'payload_locked_documents_rels' ORDER BY column_name;"
           REMOTE
           )
           RC=$?
@@ -105,6 +112,8 @@ jobs:
             echo "::error::реестр миграций на проде не прочитан (код $RC) — деплой остановлен"
             exit 1
           fi
+          LOCKED_COLS=$(printf '%s\n' "$APPLIED" | sed -n '/^---LOCKED---$/,$p' | tail -n +2)
+          APPLIED=$(printf '%s\n' "$APPLIED" | sed '/^---LOCKED---$/,$d')
 
           MISSING=""
           for f in web/src/migrations/*.sql; do
@@ -118,6 +127,27 @@ jobs:
             exit 1
           fi
           echo "все миграции репозитория есть в реестре прода — деплой продолжается"
+
+          # Дрейф-проба G231 (третий рецидив в кластере, письмо Мозга 04.09):
+          # Payload берёт блокировку при открытии ЛЮБОГО документа и перечисляет в
+          # payload_locked_documents_rels все коллекции разом. Коллекция, заведённая
+          # ручной миграцией без колонки <slug>_id в этой таблице, кладёт всю
+          # админку, а список таблиц при этом не меняется — гейт по именам таблиц
+          # молчит. Поэтому сверяем по паре «таблица.колонка»: slug каждой коллекции
+          # из src/collections обязан иметь свою колонку на проде.
+          DRIFT=""
+          for c in web/src/collections/*.ts; do
+            SLUG=$(sed -nE "s/^[[:space:]]*slug:[[:space:]]*'([a-z_-]+)'.*/\1/p" "$c" | head -1)
+            [ -n "$SLUG" ] || continue
+            COL="$(printf '%s' "$SLUG" | tr '-' '_')_id"
+            printf '%s\n' "$LOCKED_COLS" | grep -qxF "$COL" || DRIFT="$DRIFT $SLUG"
+          done
+          NCOLS=$(printf '%s\n' "$LOCKED_COLS" | grep -v '^parent_id$' | grep -c '_id$' || true)
+          if [ -n "$DRIFT" ]; then
+            echo "::error::G231: в payload_locked_documents_rels нет колонки для коллекций:$DRIFT — админка ляжет при первом открытии документа"
+            exit 1
+          fi
+          echo "G231: колонок *_id в payload_locked_documents_rels = $NCOLS, все коллекции конфига на месте"
 
       - uses: actions/setup-node@v5
         with:
@@ -221,6 +251,144 @@ jobs:
           # держим последние 5 релизов
           ls -1dt "$BASE"/releases/*/ 2>/dev/null | tail -n +6 | xargs -r rm -rf
           echo "deployed $SHA"
+          REMOTE
+
+      # Ключи шлюза SARAFAN — из vault КАРМАНа по ПАСПОРТУ (ADR-0012, D-061, мандат
+      # Мозга 03.09). Хранимого токена комнаты нет и не будет: шаг предъявляет
+      # OIDC-удостоверение прогона, получает сессионный токен на час, забирает
+      # GATEWAY_KEY_DKMALMYZH и ECOSYSTEM_KEY (grant'ы от Сарафана с 01.09), кладёт
+      # их в env-файл бокса и отзывает сессию.
+      #
+      # Три условия КАРМАНа: audience ровно `karman-vault`; прогон с refs/heads/main
+      # (push в main и dispatch на main — оба подходят, PR-прогон получит 401 по
+      # построению); самоотзыв сессии — в trap, не последней строкой.
+      #
+      # Две мины (G291, G292): токен приходит ОТВЕТОМ, GitHub его не маскирует —
+      # `::add-mask::` до первого использования; и один `trap … EXIT` на шаг —
+      # второй молча заменяет первый, и самоотзыв пропал бы.
+      #
+      # `continue-on-error` — до первого успеха: пока КАРМАН не завёл нашу
+      # личность, `/session` отвечает 403, а деплой обязан оставаться зелёным.
+      # Но молчаливого «ок» здесь нет: каждый исход печатается предупреждением.
+      #
+      # Проверка ключа — С БОКСА, не с раннера: у соседей curl с раннера до Сетки
+      # уходил в таймаут. Проба настоящая: свой ключ читает стену Калининского СДК
+      # (owner_id, не domain= — иначе 403 по привязке), чужой ключ получает 401.
+      - name: Ключи шлюза из vault по паспорту
+        continue-on-error: true
+        env:
+          VAULT_URL: ${{ secrets.VAULT_URL }}
+          GATEWAY_URL: ${{ secrets.GATEWAY_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [ -z "$VAULT_URL" ] || [ -z "$GATEWAY_URL" ]; then
+            echo "::warning::secrets.VAULT_URL / secrets.GATEWAY_URL не заданы — ключи шлюза не забираются"
+            exit 1
+          fi
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "::warning::OIDC недоступен (permissions: id-token: write) — паспорт пропущен"
+            exit 1
+          fi
+
+          ASSERTION="$(curl -sf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=karman-vault" | jq -r '.value // empty')"
+          [ -n "$ASSERTION" ] || { echo "::warning::удостоверение прогона не выдано"; exit 1; }
+          echo "::add-mask::$ASSERTION"
+
+          scode=$(curl -s -o session.json -w '%{http_code}' --max-time 20 -X POST \
+            "$VAULT_URL/api/secrets/session" -H "Authorization: Bearer $ASSERTION") || scode="curl-exit-$?"
+          case "$scode" in
+            201) ;;
+            403) echo "::warning::vault 403 — личность DKMalmyzh ещё не заведена в КАРМАНе (мандат ушёл 03.09); ждём строки «личность заведена»"; rm -f session.json; exit 1 ;;
+            401) echo "::warning::vault 401 — удостоверение отклонено (ветка не main / срок / повтор)"; rm -f session.json; exit 1 ;;
+            *)   echo "::warning::vault /session → $scode"; rm -f session.json; exit 1 ;;
+          esac
+          TOKEN="$(jq -r '.token // empty' session.json)"
+          CANWRITE="$(jq -r '.canWrite // false' session.json)"
+          rm -f session.json
+          [ -n "$TOKEN" ] || { echo "::warning::201, но token пуст"; exit 1; }
+          echo "::add-mask::$TOKEN"
+          echo "сессия vault открыта (canWrite=$CANWRITE)"
+
+          # Один trap на шаг: самоотзыв сессии + уборка всех временных файлов.
+          cleanup() {
+            curl -sS -X DELETE "$VAULT_URL/api/secrets/session" -H "Authorization: Bearer $TOKEN" \
+              -o /dev/null -w 'DELETE /session → %{http_code}\n' 2>/dev/null || true
+            rm -f session.json resp.json gw-key.txt eco-key.txt gw.env body.json
+          }
+          trap cleanup EXIT INT TERM
+
+          fetch_key() {
+            local name="$1" out="$2" code
+            code=$(curl -s -o resp.json -w '%{http_code}' --max-time 20 \
+              -H "Authorization: Bearer $TOKEN" "$VAULT_URL/api/secrets?key=$name") || code="curl-exit-$?"
+            echo "vault $name: HTTP $code"
+            [ "$code" = "200" ] || { echo "::warning::$name не прочитан (404 = grant не виден комнате)"; return 1; }
+            local val; val=$(jq -r ".secrets.$name // empty" resp.json); rm -f resp.json
+            [ -n "$val" ] || { echo "::warning::$name: 200, но значение пустое"; return 1; }
+            echo "::add-mask::$val"
+            printf '%s' "$val" > "$out"
+            echo "$name: длина ${#val}, sha256 $(printf '%s' "$val" | sha256sum | cut -c1-12)…"
+          }
+          fetch_key GATEWAY_KEY_DKMALMYZH gw-key.txt
+          fetch_key ECOSYSTEM_KEY eco-key.txt
+
+          # Проба на шлюзе с бокса, которая краснеет.
+          echo '{"method":"wall.get","params":{"owner_id":-218991929,"count":1}}' > body.json
+          scp -q gw-key.txt dkmalmyzh:/tmp/gw-key.txt
+          scp -q body.json dkmalmyzh:/tmp/gw-body.json
+          ssh dkmalmyzh 'bash -s' "$GATEWAY_URL" <<'REMOTE'
+          set -eo pipefail
+          GW="$1"
+          KEY=$(cat /tmp/gw-key.txt)
+          code=$(curl -s -o /tmp/gw-wall.json -w '%{http_code}' --max-time 60 \
+            -X POST "$GW/api/gateway/call" -H "X-API-Key: $KEY" \
+            -H 'Content-Type: application/json' --data-binary @/tmp/gw-body.json) || code="curl-exit-$?"
+          echo "wall.get своим ключом: HTTP $code"
+          if [ "$code" != "200" ] || ! grep -q '"ok": *true' /tmp/gw-wall.json; then
+            echo "::warning::шлюз не принял ключ"; head -c 300 /tmp/gw-wall.json; echo
+            rm -f /tmp/gw-key.txt /tmp/gw-body.json /tmp/gw-wall.json; exit 1
+          fi
+          WRONG_KEY=$(printf 'wrong-%s' "$RANDOM")
+          bad=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 \
+            -X POST "$GW/api/gateway/call" -H "X-API-Key: $WRONG_KEY" \
+            -H 'Content-Type: application/json' --data-binary @/tmp/gw-body.json) || bad="curl-exit-$?"
+          rm -f /tmp/gw-key.txt /tmp/gw-body.json /tmp/gw-wall.json
+          echo "wall.get неверным ключом: HTTP $bad"
+          [ "$bad" = "401" ] || { echo "::warning::неверный ключ не отвергнут ($bad) — проба ничего не доказывает"; exit 1; }
+          echo "ключ читает стену, чужой ключ получает 401"
+          REMOTE
+
+          # Запись в env бокса — идемпотентно. INTERNAL_OPS_SECRET, если его ещё нет,
+          # генерируется на месте: это секрет запуска служебных маршрутов, значение
+          # нужно только боксу. Рестарт — чтобы приложение и таймер прочитали env.
+          {
+            echo "SARAFAN_GATEWAY_URL=$GATEWAY_URL"
+            echo "SARAFAN_GATEWAY_KEY=$(cat gw-key.txt)"
+            echo "ECOSYSTEM_KEY=$(cat eco-key.txt)"
+          } > gw.env
+          scp -q gw.env dkmalmyzh:/tmp/gw.env
+          ssh dkmalmyzh 'sudo bash -s' <<'REMOTE'
+          set -e
+          ENV=/etc/dkmalmyzh/dkmalmyzh.env
+          test -f "$ENV" || { echo "::warning::$ENV нет"; rm -f /tmp/gw.env; exit 1; }
+          if cmp -s <(grep -E '^(SARAFAN_GATEWAY_URL|SARAFAN_GATEWAY_KEY|ECOSYSTEM_KEY)=' "$ENV" | sort) <(sort /tmp/gw.env) \
+             && grep -q '^INTERNAL_OPS_SECRET=.' "$ENV"; then
+            rm -f /tmp/gw.env
+            echo "env без изменений — рестарт не нужен"
+            exit 0
+          fi
+          sed -i '/^SARAFAN_GATEWAY_URL=/d; /^SARAFAN_GATEWAY_KEY=/d; /^ECOSYSTEM_KEY=/d' "$ENV"
+          cat /tmp/gw.env >> "$ENV"
+          rm -f /tmp/gw.env
+          if ! grep -q '^INTERNAL_OPS_SECRET=.' "$ENV"; then
+            echo "INTERNAL_OPS_SECRET=$(openssl rand -hex 32)" >> "$ENV"
+            echo "INTERNAL_OPS_SECRET сгенерирован"
+          fi
+          chmod 640 "$ENV"
+          systemctl restart dkmalmyzh
+          echo "env обновлён, dkmalmyzh перезапущен"
           REMOTE
 
       # Юниты импорта из ВК. Ставятся каждым деплоем идемпотентно: файл меняется —
