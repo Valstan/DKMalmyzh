@@ -101,14 +101,23 @@ export async function importWallItems(
   return stats
 }
 
-// Картинка кладётся через payload.create с готовым буфером — тем же путём, что
-// и загрузка из админки: Media сам считает размеры и делает превью.
 // Slug записи из ВК: читаемая часть заголовка плюс идентификатор записи. Без
 // хвоста два разных материала с одинаковым заголовком схлопнулись бы в один
 // адрес — поле `slug` не уникально на уровне схемы, а страница ищет по нему
 // первый попавшийся документ.
 export function vkSlug(text: string, vkUid: string, dateIso: string): string {
-  const head = vkTitleFrom(text, '')
+  return slugForVkPost(vkTitleFrom(text, ''), vkUid, dateIso)
+}
+
+/**
+ * Тот же адрес, но от готового заголовка.
+ *
+ * Нужен операции переименования уже импортированных записей: сырого текста ВК в
+ * базе нет, есть заголовок. Обе точки обязаны считать одинаково, иначе повторный
+ * прогон операции переименовывал бы записи туда-сюда.
+ */
+export function slugForVkPost(title: string, vkUid: string, dateIso: string): string {
+  const head = title
     .toLowerCase()
     .replace(/\s+/g, '-')
     .replace(/[^\p{L}\p{N}-]+/gu, '')
@@ -119,6 +128,9 @@ export function vkSlug(text: string, vkUid: string, dateIso: string): string {
   const tail = vkUid.replace(/[^0-9]+/g, '-').replace(/^-|-$/g, '')
   return head ? `${head}-${tail}` : `zapis-${dateIso.slice(0, 10)}-${tail}`
 }
+
+// Картинка кладётся через payload.create с готовым буфером — тем же путём, что
+// и загрузка из админки: Media сам считает размеры и делает превью.
 
 export async function uploadPhoto(
   payload: Payload,
