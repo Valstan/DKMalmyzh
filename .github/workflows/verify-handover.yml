@@ -1,0 +1,131 @@
+name: Verify handover (manual, read-only)
+
+# Сверка выгрузки Калинино, лежащей на том же боксе (D-074). Ничего не читает
+# в БД, ничего не меняет, ничего не переносит: перенос начнётся отдельной
+# операцией и только после «план принят».
+#
+# Зачем числом, а не словом: приёмка письма Мозга 04.09 — «выгрузку видим, N
+# файлов по манифесту сошлись». Строка «видим» без сверки sha256 ничего не
+# доказывает: битый архив выглядит как целый до первой распаковки.
+#
+# Каталог ищется по маске в домашнем каталоге деплой-пользователя, дата в файл
+# не вписывается: снимок могут снять заново. Полные пути в лог не печатаем
+# (D-038) — только имя каталога выгрузки и числа.
+#
+# Считать sha256 у архива на 600 МБ — единственная тяжёлая операция; идёт под
+# nice/ionice, потому что vCPU на боксе один и посетитель сайта важнее.
+
+on:
+  workflow_dispatch:
+    inputs:
+      hash_archive:
+        description: 'Считать sha256 архива медиа (несколько минут под nice)'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: prod-readonly-probe
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+        run: |
+          set -e
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_PORT" ]; then
+            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / secrets.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_dkmalmyzh
+          chmod 600 ~/.ssh/id_ed25519_dkmalmyzh
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          cat > ~/.ssh/config <<CFG
+          Host dkmalmyzh
+            HostName $DEPLOY_SSH_HOST
+            Port $DEPLOY_SSH_PORT
+            User valstan
+            IdentityFile ~/.ssh/id_ed25519_dkmalmyzh
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Сверить выгрузку
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          HASH_ARCHIVE: ${{ inputs.hash_archive }}
+        run: |
+          redact() {
+            sed -E -e "s#${DEPLOY_SSH_HOST}#<host>#g" -e 's#/home/[^/[:space:]]+#~#g'
+          }
+          ssh dkmalmyzh 'bash -s' "$HASH_ARCHIVE" 2>&1 <<'REMOTE' | redact
+          set -eo pipefail
+          HASH="${1:-true}"
+
+          DIR=$(ls -1d "$HOME"/kalinino/handover-* 2>/dev/null | sort | tail -1 || true)
+          if [ -z "$DIR" ]; then
+            echo "::error::каталог выгрузки не найден — Калинино его ещё не выложило или снимок убран"
+            exit 1
+          fi
+          echo "выгрузка: $(basename "$DIR")"
+          echo "файлов всего: $(find "$DIR" -type f | wc -l)"
+          echo "размер: $(du -sh "$DIR" | cut -f1)"
+          echo "верхний уровень: $(ls -1 "$DIR" | tr '\n' ' ')"
+
+          count_json() {
+            f="$DIR/$1"
+            [ -f "$f" ] || { echo "$1: НЕТ"; return 0; }
+            n=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1],encoding='utf-8'));print(len(d) if isinstance(d,list) else len(d.get('items',d)))" "$f" 2>/dev/null || echo '?')
+            echo "$1: записей $n"
+          }
+          count_json posts.json
+          count_json categories.json
+          count_json media.json
+
+          MAN="$DIR/media-manifest.tsv"
+          if [ -f "$MAN" ]; then
+            total=$(wc -l < "$MAN")
+            unlinked=$(grep -c 'db-unlinked' "$MAN" || true)
+            echo "манифест медиа: строк $total, помечено db-unlinked $unlinked, к переносу $((total - unlinked))"
+          else
+            echo "манифест медиа: НЕТ"
+          fi
+
+          if [ -f "$DIR/manual-edits.json" ]; then
+            echo "manual-edits.json: $(wc -c < "$DIR/manual-edits.json") байт"
+          fi
+
+          # sha256 архива — единственная тяжёлая операция.
+          ARC=$(ls -1 "$DIR"/media.tar.gz 2>/dev/null | head -1 || true)
+          if [ -n "$ARC" ] && [ "$HASH" = "true" ]; then
+            SUM=$(ls -1 "$DIR"/media.tar.gz*.sha256 "$DIR"/*.sha256 2>/dev/null | head -1 || true)
+            echo "считаю sha256 архива под nice — это несколько минут"
+            got=$(nice -n 19 ionice -c3 sha256sum "$ARC" 2>/dev/null | cut -d' ' -f1)
+            echo "sha256 архива: ${got:0:16}…"
+            if [ -n "$SUM" ]; then
+              want=$(grep -oE '[0-9a-f]{64}' "$SUM" | head -1)
+              if [ "$got" = "$want" ]; then
+                echo "sha256 сошёлся с приложенным"
+              else
+                echo "::error::sha256 архива НЕ сошёлся с приложенным — выгрузка повреждена или обновлена"
+                exit 1
+              fi
+            else
+              echo "приложенного .sha256 рядом нет — сверять не с чем, значение выше просто зафиксировано"
+            fi
+          elif [ -n "$ARC" ]; then
+            echo "архив на месте, sha256 пропущен по параметру запуска"
+          else
+            echo "архива media.tar.gz нет"
+          fi
+          REMOTE
