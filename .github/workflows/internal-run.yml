@@ -38,7 +38,9 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Первый импорт из ВК (33 стены с фото) шёл дольше получаса: прежний лимит
+    # 20 минут обрывал curl, а на боксе прогон продолжался — результат терялся.
+    timeout-minutes: 70
     steps:
       - name: Setup SSH
         env:
@@ -87,7 +89,7 @@ jobs:
 
           # -o в файл, а не в stdout: ответ печатаем сами, отдельной командой,
           # чтобы код возврата curl не потерялся в конвейере.
-          code=$(curl -sS -o /tmp/internal-op.json -w '%{http_code}' --max-time 1200 \
+          code=$(curl -sS -o /tmp/internal-op.json -w '%{http_code}' --max-time 3900 \
                  -X POST -H "x-internal-secret: $SECRET" "$URL" || echo 000)
 
           echo "HTTP $code"
