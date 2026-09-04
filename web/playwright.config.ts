@@ -16,7 +16,12 @@ export default defineConfig({
   fullyParallel: true,
   // Забытый .only не должен молча сузить гейт до одного теста.
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  // Ретраев нет намеренно. Главная ценность этих тестов — ловля `pageerror`, а
+  // ошибки гидратации и холодного рендера проявляются как раз на ПЕРВОМ обращении
+  // к маршруту: повторная попытка идёт по прогретому пути и проходит. Ретрай
+  // превращал бы ровно тот отказ, ради которого гейт написан, в пометку flaky при
+  // зелёном шаге. Тесты детерминированные, на одном воркере.
+  retries: 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {

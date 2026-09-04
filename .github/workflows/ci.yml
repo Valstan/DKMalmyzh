@@ -131,11 +131,38 @@ jobs:
           echo "накачено миграций: $COUNT, записей в реестре: $ROWS"
           [ "$COUNT" = "$ROWS" ] || { echo "::error::реестр не сошёлся с числом накаченных миграций"; exit 1; }
 
-      # Payload читает реестр и сверяет его со своими файлами миграций. Расхождение
-      # (файл есть, а в реестре нет) — признак того, что прод-путь неполон.
-      - name: Payload видит миграции применёнными
+      # Расхождение «файл миграции есть, а в реестре нет» — признак того, что
+      # прод-путь неполон.
+      #
+      # ⚠️ `payload migrate:status` для этого НЕ годится: он печатает таблицу и
+      # выходит с нулём даже когда у всех миграций стоит «Ran: No». Шаг с ним
+      # выглядел проверкой, не будучи ею. Сверяем сами и падаем на расхождении.
+      #
+      # Сверяются три множества: .ts-миграции (то, что сгенерировал Payload),
+      # .sql (то, что реально едет на прод) и реестр в БД. Забытый .sql — самая
+      # частая ошибка этого проекта, и она видна только в этом сравнении.
+      # ⚠️ Кавычки обязательны: второе двоеточие в значении `name:` делает
+      # workflow невалидным молча (G296) — PR зелёный, а прогон падает без лога.
+      - name: 'Миграции: файлы и реестр сходятся'
         timeout-minutes: 5
-        run: pnpm payload migrate:status
+        run: |
+          set -euo pipefail
+          TS=$(ls -1 src/migrations/*.ts 2>/dev/null | grep -v '/index\.ts$' | xargs -r -n1 basename | sed 's/\.ts$//' | sort)
+          SQL=$(ls -1 src/migrations/*.sql 2>/dev/null | xargs -r -n1 basename | sed 's/\.sql$//' | sort)
+          DB=$(psql "$DATABASE_URI" -tAc "SELECT name FROM payload_migrations ORDER BY name;" | sed '/^$/d' | sort)
+          echo "ts: $(echo "$TS" | grep -c . || true), sql: $(echo "$SQL" | grep -c . || true), реестр: $(echo "$DB" | grep -c . || true)"
+          fail=0
+          diff <(echo "$TS") <(echo "$SQL") > /dev/null || {
+            echo "::error::.ts и .sql миграции не совпадают — извлечённый SQL забыт или лишний"
+            diff <(echo "$TS") <(echo "$SQL") || true
+            fail=1
+          }
+          diff <(echo "$SQL") <(echo "$DB") > /dev/null || {
+            echo "::error::накаченные миграции не совпадают с файлами .sql"
+            diff <(echo "$SQL") <(echo "$DB") || true
+            fail=1
+          }
+          exit $fail
 
       # Сид: создание И обновление существующего документа. Зелёный импорт доказывает
       # только полноту пути СОЗДАНИЯ — обновление ходит по другим таблицам (G231).
