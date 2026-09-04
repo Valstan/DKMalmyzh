@@ -66,7 +66,13 @@ jobs:
       - name: Положить разборщик на бокс
         run: scp -q deploy/handover-shape.py dkmalmyzh:/tmp/handover-shape.py
 
+      # shell: bash — ради `-o pipefail`. Дефолтная оболочка шага это `bash -e {0}`
+      # БЕЗ pipefail, а удалённый скрипт идёт через конвейер `ssh … | redact`: кодом
+      # шага становился код sed, то есть всегда 0. Любая аварийная ветка на боксе —
+      # включая «sha256 не сошёлся, выгрузка повреждена» — давала зелёный прогон.
+      # Проба, которая не может покраснеть, ничего не проверяет.
       - name: Сверить выгрузку
+        shell: bash
         env:
           DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
           HASH_ARCHIVE: ${{ inputs.hash_archive }}
@@ -91,8 +97,14 @@ jobs:
           count_json() {
             f="$DIR/$1"
             [ -f "$f" ] || { echo "$1: НЕТ"; return 0; }
-            n=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1],encoding='utf-8'));print(len(d) if isinstance(d,list) else len(d.get('items',d)))" "$f" 2>/dev/null || echo '?')
-            echo "$1: записей $n"
+            # Считает разборщик, а не однострочник: прежний вариант для объекта без
+            # ключа items печатал число КЛЮЧЕЙ верхнего уровня как «записей N», а
+            # любую ошибку гасил в '?'. Приёмка, смысл которой в сверке чисел,
+            # фиксировала бы заведомо неверное число, оставаясь зелёной.
+            python3 /tmp/handover-shape.py --count "$f" || {
+              echo "::error::$1: форма файла не распознана — число записей не подтверждено"
+              return 1
+            }
           }
           count_json posts.json
           count_json categories.json
@@ -121,12 +133,28 @@ jobs:
           # sha256 архива — единственная тяжёлая операция.
           ARC=$(ls -1 "$DIR"/media.tar.gz 2>/dev/null | head -1 || true)
           if [ -n "$ARC" ] && [ "$HASH" = "true" ]; then
-            SUM=$(ls -1 "$DIR"/media.tar.gz*.sha256 "$DIR"/*.sha256 2>/dev/null | head -1 || true)
+            # Только сумма САМОГО архива. Прежний запасной шаблон `*.sha256` брал
+            # любой файл сумм в каталоге (например kalinino.dump.sha256) и первую
+            # шестнадцатеричную строку из него — исправная выгрузка объявлялась
+            # повреждённой. Из общего файла сумм строку выбираем по имени архива.
+            SUM=""
+            if [ -f "$ARC.sha256" ]; then
+              SUM="$ARC.sha256"
+            else
+              for cand in "$DIR"/*.sha256; do
+                [ -f "$cand" ] || continue
+                grep -qF "$(basename "$ARC")" "$cand" && SUM="$cand" && break
+              done
+            fi
             echo "считаю sha256 архива под nice — это несколько минут"
-            got=$(nice -n 19 ionice -c3 sha256sum "$ARC" 2>/dev/null | cut -d' ' -f1)
+            got=$(nice -n 19 ionice -c3 sha256sum "$ARC" | cut -d' ' -f1)
+            [ -n "$got" ] || { echo "::error::sha256 архива не посчитался"; exit 1; }
             echo "sha256 архива: ${got:0:16}…"
             if [ -n "$SUM" ]; then
-              want=$(grep -oE '[0-9a-f]{64}' "$SUM" | head -1)
+              # Регистр приводим к нижнему: сумма, записанная заглавными, дала бы
+              # ложное «не сошёлся». Пустой want — тоже отказ, а не «повреждено».
+              want=$(grep -ioE '[0-9a-f]{64}' "$SUM" | head -1 | tr 'A-F' 'a-f')
+              [ -n "$want" ] || { echo "::error::в файле сумм нет шестнадцатеричной строки — сверять не с чем"; exit 1; }
               if [ "$got" = "$want" ]; then
                 echo "sha256 сошёлся с приложенным"
               else

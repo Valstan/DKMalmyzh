@@ -10,6 +10,10 @@ import {
   ciEventDate,
   CI_PAGE_SLUG,
   CI_PAGE_TITLE,
+  CI_DRAFT_INSTITUTION_SLUG,
+  CI_DRAFT_INSTITUTION_TITLE,
+  CI_DRAFT_POST_SLUG,
+  CI_DRAFT_POST_TITLE,
   CI_POST_SLUG,
   CI_POST_TITLE,
   CI_POST_TITLE_UPDATED,
@@ -124,6 +128,42 @@ const main = async () => {
   })
 
   console.log(`шаг 6/6 — создание предстоящей афиши: ок (id ${event.id})`)
+
+  // Черновики — специально, чтобы негативные проверки e2e имели что не находить.
+  // Пока в базе гейта лежало только опубликованное, тест «черновик не виден» был
+  // бы зелёным и при полностью снятом фильтре `_status`.
+  const draftInstitution = await payload.create({
+    collection: 'institutions',
+    context: ctx,
+    data: {
+      title: CI_DRAFT_INSTITUTION_TITLE,
+      shortTitle: 'CI-черновик',
+      settlement: 'CI',
+      slug: CI_DRAFT_INSTITUTION_SLUG,
+      _status: 'draft',
+    },
+    // draft: true обязателен при создании черновика: без него Payload требует
+    // полный набор required-полей опубликованного документа.
+    draft: true,
+  })
+
+  const draftPost = await payload.create({
+    collection: 'posts',
+    context: ctx,
+    data: {
+      title: CI_DRAFT_POST_TITLE,
+      slug: CI_DRAFT_POST_SLUG,
+      date: new Date().toISOString(),
+      institution: institution.id,
+      source: 'manual',
+      _status: 'draft',
+    },
+    draft: true,
+  })
+
+  console.log(
+    `шаг 7/7 — черновики для негативных проверок: ок (учреждение ${draftInstitution.id}, новость ${draftPost.id})`,
+  )
 
   // Проверяем результат фактом, а не отсутствием исключения: сид, который
   // «отработал» и ничего не создал, оставил бы пререндер таким же пустым.

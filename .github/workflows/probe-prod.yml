@@ -56,11 +56,24 @@ jobs:
           CFG
           chmod 600 ~/.ssh/config
 
+      # shell: bash — ради `-o pipefail` (см. пояснение в verify-handover.yml):
+      # без него код удалённого скрипта терялся в конвейере с redact.
       - name: Юниты и журнал
+        shell: bash
         env:
           DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
           LINES: ${{ inputs.journal_lines }}
         run: |
+          # Значение уходит аргументом удалённой команды, а ssh склеивает аргументы
+          # в строку, которую удалённый шелл разбирает ЗАНОВО: кавычки на раннере от
+          # этого не защищают. Непроверенный ввод здесь означал бы выполнение
+          # произвольной команды на проде из воркфлоу с заголовком «read-only».
+          case "$LINES" in
+            ''|*[!0-9]*) echo "::error::journal_lines — только цифры"; exit 1 ;;
+          esac
+          [ "$LINES" -ge 1 ] && [ "$LINES" -le 500 ] || {
+            echo "::error::journal_lines вне диапазона 1..500"; exit 1
+          }
           redact() {
             sed -E -e 's#(postgres(ql)?://)[^[:space:]]*#\1<redacted>#g' \
                    -e "s#${DEPLOY_SSH_HOST}#<host>#g" \
@@ -80,6 +93,7 @@ jobs:
           REMOTE
 
       - name: Счётчики в БД
+        shell: bash
         env:
           DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
         run: |
@@ -94,5 +108,9 @@ jobs:
           psql "$DB" -tAc "SELECT 'posts: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||', from vk '||count(*) FILTER (WHERE source='vk')||')' FROM posts;"
           psql "$DB" -tAc "SELECT 'media: '||count(*) FROM media;"
           psql "$DB" -tAc "SELECT 'vk sources resolved: '||count(*) FILTER (WHERE owner_id IS NOT NULL)||' / '||count(*) FROM institutions_vk_sources;"
-          psql "$DB" -tAc "SELECT 'posts by institution: '||string_agg(i.slug||'='||c, ', ' ORDER BY c DESC) FROM (SELECT institution_id, count(*) c FROM posts WHERE institution_id IS NOT NULL GROUP BY institution_id) p JOIN institutions i ON i.id=p.institution_id;"
+          # coalesce на обоих уровнях: конкатенация с NULL даёт NULL, а string_agg
+          # молча пропускает NULL-элементы. Учреждение без slug (заголовок ещё не
+          # заполнен) исчезало бы из разбивки, и сумма по списку не сходилась бы с
+          # общим счётчиком — читается как «импорт до него не дошёл».
+          psql "$DB" -tAc "SELECT 'posts by institution: '||coalesce(string_agg(coalesce(i.slug,'id'||i.id)||'='||c, ', ' ORDER BY c DESC), 'нет записей') FROM (SELECT institution_id, count(*) c FROM posts WHERE institution_id IS NOT NULL GROUP BY institution_id) p JOIN institutions i ON i.id=p.institution_id;"
           REMOTE

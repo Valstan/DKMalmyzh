@@ -24,3 +24,14 @@ export const CI_EVENT_SLUG = 'ci-event'
 export const CI_EVENT_TITLE = 'CI: будущая афиша'
 export const ciEventDate = (): string =>
   new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+
+// Черновики. Гейт обязан проверять не только что опубликованное ВИДНО, но и что
+// неопубликованное НЕ видно: на проде сейчас сотни черновиков, и утечка любого из
+// них в публичную ленту — это чужой материал, показанный без решения редакции.
+// Без такого документа в БД ни один тест не отличает «фильтр работает» от
+// «фильтровать было нечего».
+export const CI_DRAFT_POST_SLUG = 'ci-draft-post'
+export const CI_DRAFT_POST_TITLE = 'CI: черновик новости (не должен быть виден)'
+
+export const CI_DRAFT_INSTITUTION_SLUG = 'ci-draft-dk'
+export const CI_DRAFT_INSTITUTION_TITLE = 'CI: черновик дома культуры (не должен быть виден)'
