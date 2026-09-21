@@ -93,7 +93,19 @@ jobs:
           echo "== dkmalmyzh: $(systemctl is-active dkmalmyzh) · $(systemctl show dkmalmyzh -p NRestarts,ExecMainStartTimestamp --value | tr '\n' ' ')"
           echo "== vk-sync.service: $(systemctl is-active dkmalmyzh-vk-sync.service) · $(systemctl show dkmalmyzh-vk-sync.service -p Result,ExecMainStartTimestamp,ExecMainExitTimestamp --value | tr '\n' ' ')"
           echo "== vk-sync.timer: $(systemctl is-active dkmalmyzh-vk-sync.timer) · next: $(systemctl show dkmalmyzh-vk-sync.timer -p NextElapseUSecRealtime --value)"
-          echo "== процессы node: $(pgrep -c -f 'server.js' || echo 0)"
+          # pgrep на боксе чужие процессы не видит (в пробе 04.09 при живом сайте
+          # печатал 0) — честнее спросить systemd про главный процесс юнита.
+          echo "== MainPID dkmalmyzh: $(systemctl show dkmalmyzh -p MainPID --value)"
+          # Версии с прода — из node_modules релиза, а не из package.json репозитория:
+          # отчёт Мозгу по мандату 14.09 требует именно факт с бокса.
+          REL=/home/valstan/dkmalmyzh/current
+          for pkg in next payload @payloadcms/db-postgres @payloadcms/next; do
+            v=$(node -e "console.log(require('$REL/node_modules/$pkg/package.json').version)" 2>/dev/null || echo '?')
+            echo "== версия $pkg на проде: $v"
+          done
+          # Чужие POST с выдуманными Server Action — так сканеры щупают Next на
+          # известные дыры (письмо Мозга 14.09). Считаем за сутки, не печатаем тела.
+          echo "== 'Failed to find Server Action' за 24 ч: $(sudo journalctl -u dkmalmyzh --since '24 hours ago' --no-pager -o cat | grep -c 'Failed to find Server Action' || true)"
           echo "== журнал приложения, последние $N строк (без префикса) =="
           sudo journalctl -u dkmalmyzh -n "$N" --no-pager -o cat
           echo "== журнал vk-sync.service, последние 20 строк =="
@@ -123,6 +135,8 @@ jobs:
           psql "$DB" -tAc "SELECT 'institutions: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||')' FROM institutions;"
           psql "$DB" -tAc "SELECT 'posts: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||', from vk '||count(*) FILTER (WHERE source='vk')||')' FROM posts;"
           psql "$DB" -tAc "SELECT 'media: '||count(*) FROM media;"
+          # G388: Payload ≥ 3.90 требует колонку у auth-коллекции даже без forgotPassword.
+          psql "$DB" -tAc "SELECT 'users.reset_password_requested_at: '||CASE WHEN count(*)>0 THEN 'на месте ('||min(data_type)||')' ELSE 'НЕТ' END FROM information_schema.columns WHERE table_name='users' AND column_name='reset_password_requested_at';"
           # Дубли адресов: slug в схеме не уникален, а страница записи ищет по нему
           # первый попавшийся документ — при совпадении остальные недоступны при
           # живых ссылках из ленты. Импорт до 04.09 брал slug из заголовка, а
