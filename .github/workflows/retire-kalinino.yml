@@ -1,0 +1,103 @@
+name: Снять Калинино с бокса (manual, D-089)
+
+# Решение владельца 12.09 (D-089): юнит и таймер Калинино на боксе снимает портал
+# культуры как хозяин раздела /dk/kalinino. Снаружи это невидимо (их имя уже 301 на
+# нас), внутри — Next-процесс вхолостую на :3006 и таймер, ежесуточно падающий в
+# failed (ключ шлюза отозван 06.09).
+#
+# Скрипт едет файлом (D-046): deploy/retire-kalinino.sh. Режимы:
+#   check  — только отчёт о состоянии (read-only);
+#   retire — disable --now юнитов, убрать unit-файлы, daemon-reload, каталог
+#            /home/valstan/kalinino → kalinino.retired-2026-09-12 (НЕ удалять:
+#            репо KalininoCKS ещё не заархивировано, D-081).
+# nginx не трогается: redirect-vhost — наш и остаётся.
+#
+# Приёмка по письму Мозга: ss по :3006 пусто, list-units/list-timers пусто,
+# free -m до/после, внешний 301 с их имени на /dk/kalinino по-прежнему стоит.
+#
+# Требует те же доступы, что deploy-prod.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Режим'
+        required: true
+        default: check
+        type: choice
+        options: [check, retire]
+
+concurrency:
+  group: prod-nginx
+  cancel-in-progress: false
+
+env:
+  KALININO_DOMAIN: xn----8sbksaibjtblz.xn--80adkdyec4j.xn--p1ai # сдк-калинино.вмалмыже.рф
+
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          DEPLOY_SSH_PORT: ${{ vars.DEPLOY_SSH_PORT }}
+        run: |
+          set -e
+          if [ -z "$SSH_PRIVATE_KEY" ] || [ -z "$DEPLOY_SSH_HOST" ] || [ -z "$DEPLOY_SSH_PORT" ]; then
+            echo "::error::Заданы не все: secrets.SSH_PRIVATE_KEY / secrets.DEPLOY_SSH_HOST / vars.DEPLOY_SSH_PORT"
+            exit 1
+          fi
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519_dkmalmyzh
+          chmod 600 ~/.ssh/id_ed25519_dkmalmyzh
+          ssh-keyscan -p "$DEPLOY_SSH_PORT" -H "$DEPLOY_SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          cat > ~/.ssh/config <<CFG
+          Host dkmalmyzh
+            HostName $DEPLOY_SSH_HOST
+            Port $DEPLOY_SSH_PORT
+            User valstan
+            IdentityFile ~/.ssh/id_ed25519_dkmalmyzh
+            IdentitiesOnly yes
+            StrictHostKeyChecking accept-new
+            ServerAliveInterval 30
+          CFG
+          chmod 600 ~/.ssh/config
+
+      - name: Положить скрипт на бокс
+        run: scp -q deploy/retire-kalinino.sh dkmalmyzh:/tmp/retire-kalinino.sh
+
+      # shell: bash — ради pipefail: код удалённого скрипта не должен теряться
+      # в конвейере с redact.
+      - name: Снятие / проверка на боксе
+        shell: bash
+        env:
+          DEPLOY_SSH_HOST: ${{ secrets.DEPLOY_SSH_HOST }}
+          MODE: ${{ inputs.mode }}
+        run: |
+          case "$MODE" in check|retire) ;; *) echo "::error::неизвестный режим"; exit 1 ;; esac
+          # ss печатает адреса/pid своего процесса — это наш же бокс, но хост и
+          # домашние пути в лог не попадают (D-038).
+          redact() {
+            sed -E -e "s#${DEPLOY_SSH_HOST}#<host>#g" -e 's#/home/[^/[:space:]]+#~#g'
+          }
+          ssh dkmalmyzh "MODE='$MODE' bash /tmp/retire-kalinino.sh; rc=\$?; rm -f /tmp/retire-kalinino.sh; exit \$rc" 2>&1 | redact
+
+      # Внешняя приёмка с раннера: их имя по-прежнему 301 на наш /dk/kalinino.
+      # Без пайпа в grep (G355): код и Location — в переменные.
+      - name: Редирект с имени Калинино стоит
+        shell: bash
+        run: |
+          out=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 20 "https://$KALININO_DOMAIN/" || true)
+          echo "https://<калинино>/ → $out"
+          code=${out%% *}
+          loc=${out#* }
+          [ "$code" = "301" ] || { echo "::error::ожидался 301, получен $code"; exit 1; }
+          case "$loc" in
+            */dk/kalinino*) echo "редирект ведёт на /dk/kalinino" ;;
+            *) echo "::error::Location не ведёт на /dk/kalinino"; exit 1 ;;
+          esac
