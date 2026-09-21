@@ -168,7 +168,7 @@ jobs:
               code=000
               for attempt in $(seq 1 15); do
                 code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -H "Host: $KAL" http://127.0.0.1/.well-known/acme-challenge/probe || true)
-                [ "$code" = "200" ] && break
+                if [ "$code" = "200" ]; then break; fi
                 sleep 1
               done
               sudo rm -f "$WEBROOT/.well-known/acme-challenge/probe"

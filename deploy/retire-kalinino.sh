@@ -80,5 +80,6 @@ FAIL=0
 [ -z "$(systemctl list-timers --all --no-legend 'kalinino*')" ] || { echo "::error::таймеры kalinino* ещё числятся"; FAIL=1; }
 [ -z "$(sudo ss -tlnp 'sport = :3006' | tail -n +2)" ] || { echo "::error::порт 3006 всё ещё слушается"; FAIL=1; }
 [ ! -d "$KDIR" ] || { echo "::error::каталог $KDIR всё ещё на месте"; FAIL=1; }
-[ "$FAIL" = 0 ] && echo "приёмка: юнитов нет, таймеров нет, :3006 пуст, каталог переименован"
+# `if`, не `[ … ] && echo` (G347): ложный тест последней командой отдаёт 1 под set -e.
+if [ "$FAIL" = 0 ]; then echo "приёмка: юнитов нет, таймеров нет, :3006 пуст, каталог переименован"; fi
 exit "$FAIL"
