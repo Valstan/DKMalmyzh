@@ -31,7 +31,7 @@
     "payload": "3.90.1",
     "react": "19.2.1",
     "react-dom": "19.2.1",
-    "sharp": "0.34.2"
+    "sharp": "0.35.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
@@ -57,6 +57,12 @@
       "sharp",
       "esbuild",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "fast-uri": "^3.1.6",
+      "js-yaml@>=4": "^4.3.2",
+      "immutable": "^4.3.9",
+      "postcss@>=8": "^8.5.18"
+    }
   }
 }
