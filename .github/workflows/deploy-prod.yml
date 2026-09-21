@@ -616,7 +616,7 @@ jobs:
           else
             URL="http://127.0.0.1/"; EXTRA=""
           fi
-          code=$(curl -sk $EXTRA -o /tmp/smoke.html -w '%{http_code}' --max-time 15 -H "$H" "$URL")
+          code=$(curl -sk $EXTRA -o /tmp/smoke.html -D /tmp/smoke.hdr -w '%{http_code}' --max-time 15 -H "$H" "$URL")
           echo "nginx $URL → $code"
           [ "$code" = "200" ] || { echo "::error::через nginx ожидался 200"; exit 1; }
           # Маркер сменился с «РЦКД» на «Малмыж»: сайт стал районным порталом, и
@@ -630,7 +630,17 @@ jobs:
             grep -oiE "<title>[^<]*</title>" /tmp/smoke.html | head -1 || true
             exit 1
           fi
-          rm -f /tmp/smoke.html
+          # Заголовки безопасности — по факту ответа, без пайпа в grep (G355).
+          hdr=$(tr -d '\r' < /tmp/smoke.hdr)
+          case "$hdr" in
+            *[Cc]ontent-[Ss]ecurity-[Pp]olicy:*) echo "Content-Security-Policy: есть" ;;
+            *) echo "::error::в ответе нет Content-Security-Policy"; exit 1 ;;
+          esac
+          case "$hdr" in
+            *[Xx]-[Pp]owered-[Bb]y:*) echo "::error::X-Powered-By торчит в ответе"; exit 1 ;;
+            *) echo "X-Powered-By: нет" ;;
+          esac
+          rm -f /tmp/smoke.html /tmp/smoke.hdr
 
           # Прежний домен обязан отдавать 301 на портал. Без этой проверки
           # переключение доменов не проверяет никто: сайт на новом имени зелёный,
