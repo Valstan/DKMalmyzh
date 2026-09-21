@@ -42,6 +42,8 @@ const nextConfig = {
     ],
   },
   reactStrictMode: true,
+  // Заголовок X-Powered-By: Next.js — лишняя строка для recon (письмо Мозга 14.09).
+  poweredByHeader: false,
 }
 
 export default withPayload(nextConfig, { devBundleServerPackages: false })
