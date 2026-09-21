@@ -2,8 +2,8 @@
 
 > Sticky-note для непрерывности сессий. Обновляется тем же PR, что и шаг работы (D-066); `/close_session` — страховка. История — `git log -- docs/SESSION_HANDOFF.md`.
 
-**Status:** LIVE — импорт из ВК включён; Калинино поглощено (D-074); карточка Сабантуя живая (D-075). ⚠️ **Прод на уязвимых `next` 15.4.11 / `payload` 3.75.0 — PR #70 с обновлением ждёт выката** (мандат Мозга 14.09, срок 16.09 просрочен)
-**Updated:** 2026-09-21, вечер (#70 — next 15.5.25, payload 3.90.1, миграция `payload_3_90`; на прод ещё не выкачено)
+**Status:** LIVE — импорт из ВК включён; Калинино поглощено (D-074); карточка Сабантуя живая (D-075); **на проде `next` 15.5.25 / `payload` 3.90.1** (мандат Мозга 14.09 закрыт 21.09, отчёт отправлен)
+**Updated:** 2026-09-21, ночь (#70 выкачен, #71/#72 проба печатает версии и колонку, письмо Мозгу)
 **Branch:** main
 
 ## Текущая нитка
@@ -14,7 +14,7 @@
 
 ⚠️ Инфра-детали прода (адрес хоста, порт, состав бокса, адреса шлюза и vault) в репозитории **не хранятся** — `AGENTS.md` §Recon-поверхность. Адреса лежат в `secrets.VAULT_URL` / `secrets.GATEWAY_URL`.
 
-## В работе 2026-09-21 — обновление Next/Payload по мандату Мозга (#70)
+## Выполнено 2026-09-21 — обновление Next/Payload по мандату Мозга (#70–#72)
 
 Почта с 12.09 без ответов — девять писем, главное `2026-09-14-critical-payload-pre-auth-takeover-and-next-rce-update-by-16-09` (high, mandate) и `2026-09-21-payload-3-90-is-the-new-floor…` (потолок 3.90.1, строка к 28.09).
 
@@ -23,7 +23,12 @@
 - Next 15.5 дописывает в `next-env.d.ts` ссылку на `.next/types/routes.d.ts` — откачено, в коммит не брать (иначе `tsc` в CI без сборки краснеет).
 - `next lint` объявлен deprecated (уйдёт в Next 16) — пока работает, миграция на ESLint CLI отдельной задачей.
 
-**Порядок выката #70:** (1) `apply-migration.yml` с `20260921_191732_payload_3_90` — можно с ветки до мержа, колонка nullable и 3.75 не мешает; (2) squash-merge → авто-деплой, Migration guard должен увидеть шесть миграций в реестре, дрейф-проба G231 «5 = 5»; (3) проба `probe-prod.yml`: юнит active, `NRestarts=0`, `/api/*` 200, в журнале ни строки про drizzle/relation/column, есть ли `Failed to find Server Action` до/после; (4) письмо Мозгу с `ref:` на оба письма — версии с прода, колонка на месте (`information_schema.columns`), critical 0. Вторая строка того же отчёта — CSP/`X-Powered-By` (отдельный PR: `poweredByHeader: false`, `frame-ancestors 'self'; form-action 'self'; base-uri 'self'`).
+**Выкачено:** `apply-migration.yml` с ветки (`ALTER TABLE`, `INSERT 0 1`) → squash-merge #70 → авто-деплой: Migration guard увидел шесть миграций, G231 «5 = 5», смоук с маркером прошёл. Проба после: юнит active, `NRestarts=0`, колонка `users.reset_password_requested_at` на месте, первый импорт из ВК на новом Payload штатный; `Failed to find Server Action` за сутки 10, после старта нового юнита 0. Письмо Мозгу `2026-09-21-next-15-5-25-payload-3-90-1-on-prod-column-in-place-scanners-10-before-0-after` с `ref:` на оба письма.
+- **#71/#72 — проба `probe-prod.yml`** теперь печатает версии `next`/`payload` из релиза, колонку G388, счётчик сканеров «за сутки / после старта юнита» и `MainPID` вместо `pgrep` (тот на боксе чужие процессы не видит — печатал 0 при живом сайте ещё 04.09).
+- **Грабля:** версия `payload` из `node_modules` standalone-релиза **не читается** — ни верхний пакет, ни `.pnpm/payload@…`; `next` тем же способом читается. Payload уходит в серверные чанки. Факт «версия на проде» для Payload — лог сборки релиза в `deploy-prod.yml` (`+ payload 3.90.1`), так и доложено.
+- **Грабля D-046 на себе:** python-heredoc внутри Bash съел `\1` и `\n` в sed-выражении (ушло в PR #72 с первого раза сломанным — поймано глазами в diff до пуша). Файлы править инструментом записи, не heredoc.
+
+**Следующие шаги по этой нитке:** (1) CSP + `poweredByHeader: false` — вторая строка отчёта Мозгу (`frame-ancestors 'self'; form-action 'self'; base-uri 'self'`); (2) аудит зависимостей по расписанию (#312): workflow `pnpm audit --prod --audit-level=high` пн/чт + кнопка + при смене lockfile, не required; (3) `next lint` deprecated — миграция на ESLint CLI отдельно.
 
 **Остальная почта, по срокам:** erratum `grep -q` под pipefail (строка к 22.09 — проверить гейты/смоуки на `cmd | grep -q`); D-089 снять `kalinino.service` и таймер с бокса, каталог → `kalinino.retired-2026-09-12`, отчёт с `ss` по 3006; аудит зависимостей по расписанию (#312, пн/чт, не required); D-096 / D-097 / D-088 — строки к 02.10; erratum `[ … ] && echo` под `set -e` — проверить свои workflow.
 
