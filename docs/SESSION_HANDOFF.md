@@ -3,7 +3,7 @@
 > Sticky-note для непрерывности сессий. Обновляется тем же PR, что и шаг работы (D-066); `/close_session` — страховка. История — `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** LIVE — импорт из ВК включён; Калинино поглощено (D-074); карточка Сабантуя живая (D-075); **на проде `next` 15.5.25 / `payload` 3.90.1** (мандат Мозга 14.09 закрыт 21.09, отчёт отправлен)
-**Updated:** 2026-09-21, ночь (#70 выкачен; #74 grep -q под pipefail; #75 Калинино снято с бокса, D-089 закрыт; три письма Мозгу)
+**Updated:** 2026-09-21, ночь (#70 выкачен; #74 grep -q; #75 Калинино снято, D-089; #77 CSP + X-Powered-By; четыре письма Мозгу)
 **Branch:** main
 
 ## Текущая нитка
@@ -13,6 +13,14 @@
 **Ключ шлюза SARAFAN на проде.** Забран 04.09 паспортом КАРМАНа (OIDC → `/api/secrets/session` → `GET ?key=`), шаг живёт в `deploy-prod.yml` и повторяется каждым деплоем идемпотентно (env без изменений — рестарта нет). Проба на шлюзе с бокса: свой ключ читает стену, чужой — 401. `INTERNAL_OPS_SECRET` сгенерирован на боксе тем же шагом. Таймер `dkmalmyzh-vk-sync.timer` включён (раз в полчаса).
 
 ⚠️ Инфра-детали прода (адрес хоста, порт, состав бокса, адреса шлюза и vault) в репозитории **не хранятся** — `AGENTS.md` §Recon-поверхность. Адреса лежат в `secrets.VAULT_URL` / `secrets.GATEWAY_URL`.
+
+## Выполнено 2026-09-21 — CSP и X-Powered-By (#77)
+
+- `Content-Security-Policy: frame-ancestors 'self'; form-action 'self'; base-uri 'self'` в обоих vhost (`deploy/nginx-dkmalmyzh-tls.conf`, бутстрап `:80`); `proxy_hide_header X-Powered-By` + `poweredByHeader: false` в `next.config.js`. Тройка не трогает `script`/`img`/`frame-src` — Метрика, внешние обложки, плееры ВК не затронуты.
+- Смоук деплоя пишет заголовки в `/tmp/smoke.hdr` и проверяет CSP есть / `X-Powered-By` нет — условия выхода через `case` (G355). Снаружи после выката: CSP отдаётся, `X-Powered-By` нет.
+- Этот push-деплой — первый живой прогон Migration guard и G231 после #74: «все миграции в реестре», «5 = 5».
+- ⚠️ `add_header` внутри `location /_next/static/` (Cache-Control) по правилам nginx **отменяет** родительские `add_header` для этой локации — статика уходит без CSP/HSTS. Для ассетов это неважно, но помнить при добавлении заголовков в location.
+- Письмо `2026-09-21-csp-added-x-powered-by-gone-second-line-of-the-14-09-report`.
 
 ## Выполнено 2026-09-21 — erratum `grep -q` (#74) и снятие Калинино с бокса, D-089 (#75)
 
@@ -34,7 +42,7 @@
 - **Грабля:** версия `payload` из `node_modules` standalone-релиза **не читается** — ни верхний пакет, ни `.pnpm/payload@…`; `next` тем же способом читается. Payload уходит в серверные чанки. Факт «версия на проде» для Payload — лог сборки релиза в `deploy-prod.yml` (`+ payload 3.90.1`), так и доложено.
 - **Грабля D-046 на себе:** python-heredoc внутри Bash съел `\1` и `\n` в sed-выражении (ушло в PR #72 с первого раза сломанным — поймано глазами в diff до пуша). Файлы править инструментом записи, не heredoc.
 
-**Следующие шаги:** (0) остаток почты — D-096 / D-097 / D-088 строки к 02.10, erratum `[ … ] && echo` под `set -e` (проверить свои workflow); (1) CSP + `poweredByHeader: false` — вторая строка отчёта Мозгу (`frame-ancestors 'self'; form-action 'self'; base-uri 'self'`); (2) аудит зависимостей по расписанию (#312): workflow `pnpm audit --prod --audit-level=high` пн/чт + кнопка + при смене lockfile, не required; (3) `next lint` deprecated — миграция на ESLint CLI отдельно.
+**Следующие шаги:** (0) остаток почты — D-096 / D-097 / D-088 строки к 02.10, erratum `[ … ] && echo` под `set -e` (проверить свои workflow); (1) аудит зависимостей по расписанию (#312): workflow `pnpm audit --prod --audit-level=high` пн/чт + кнопка + при смене lockfile, не required — последний открытый пункт мандата 14.09; (2) `next lint` deprecated — миграция на ESLint CLI отдельно.
 
 **Остальная почта, по срокам:** erratum `grep -q` под pipefail (строка к 22.09 — проверить гейты/смоуки на `cmd | grep -q`); D-089 снять `kalinino.service` и таймер с бокса, каталог → `kalinino.retired-2026-09-12`, отчёт с `ss` по 3006; аудит зависимостей по расписанию (#312, пн/чт, не required); D-096 / D-097 / D-088 — строки к 02.10; erratum `[ … ] && echo` под `set -e` — проверить свои workflow.
 
