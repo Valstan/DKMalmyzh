@@ -3,7 +3,7 @@
 > Sticky-note для непрерывности сессий. Обновляется тем же PR, что и шаг работы (D-066); `/close_session` — страховка. История — `git log -- docs/SESSION_HANDOFF.md`.
 
 **Status:** LIVE — импорт из ВК включён; Калинино поглощено (D-074); карточка Сабантуя живая (D-075); **на проде `next` 15.5.25 / `payload` 3.90.1** (мандат Мозга 14.09 закрыт 21.09, отчёт отправлен)
-**Updated:** 2026-09-21, ночь (#70 выкачен, #71/#72 проба печатает версии и колонку, письмо Мозгу)
+**Updated:** 2026-09-21, ночь (#70 выкачен; #74 grep -q под pipefail; #75 Калинино снято с бокса, D-089 закрыт; три письма Мозгу)
 **Branch:** main
 
 ## Текущая нитка
@@ -13,6 +13,12 @@
 **Ключ шлюза SARAFAN на проде.** Забран 04.09 паспортом КАРМАНа (OIDC → `/api/secrets/session` → `GET ?key=`), шаг живёт в `deploy-prod.yml` и повторяется каждым деплоем идемпотентно (env без изменений — рестарта нет). Проба на шлюзе с бокса: свой ключ читает стену, чужой — 401. `INTERNAL_OPS_SECRET` сгенерирован на боксе тем же шагом. Таймер `dkmalmyzh-vk-sync.timer` включён (раз в полчаса).
 
 ⚠️ Инфра-детали прода (адрес хоста, порт, состав бокса, адреса шлюза и vault) в репозитории **не хранятся** — `AGENTS.md` §Recon-поверхность. Адреса лежат в `secrets.VAULT_URL` / `secrets.GATEWAY_URL`.
+
+## Выполнено 2026-09-21 — erratum `grep -q` (#74) и снятие Калинино с бокса, D-089 (#75)
+
+- **#74 (G355).** Под `pipefail` `cmd | grep -q` отдаёт 141 с вероятностью — найденное засчитывается как ненайденное. Нашлось 6, переписано 6: Migration guard и дрейф-проба G231 в `deploy-prod.yml` — `case $'\n'…` без пайпа; валидации inputs в `internal-run.yml`/`migrate-create.yml` — `[[ =~ ]]`; проверка сертификата в `switch-kalinino-domain.yml` — тело в переменную (там ложное «нет» после выпуска дёргало `ERR`-trap с откатом vhost). Мутация `case` локально, живая проверка guard/G231 — следующим push-деплоем (`.github/**` в `paths-ignore`). Письмо `2026-09-21-grep-q-under-pipefail-six-found-rewritten-two-in-the-dangerous-direction`.
+- **#75 (D-089).** `retire-kalinino.yml` (`check` / `retire`) + `deploy/retire-kalinino.sh` файлом. `check` сошёлся с фактом Мозга 12.09 один в один (pid 198170 на :3006). `retire`: таймер → сервис → static-юнит сняты, три unit-файла убраны, `daemon-reload`, каталог → `kalinino.retired-2026-09-12` (не удалён, D-081), nginx не тронут, 301 с их имени на `/dk/kalinino` стоит. `free -m` used 1337 → 1311. Приёмка в скрипте — условия выхода. Письмо `2026-09-21-d089-kalinino-retired-from-box-units-gone-3006-empty-dir-renamed`.
+- Грабля: `systemctl disable` на `static`-юните печатает лекцию systemd — безвредно, `--now` его останавливает, файл убирается отдельно.
 
 ## Выполнено 2026-09-21 — обновление Next/Payload по мандату Мозга (#70–#72)
 
@@ -28,7 +34,7 @@
 - **Грабля:** версия `payload` из `node_modules` standalone-релиза **не читается** — ни верхний пакет, ни `.pnpm/payload@…`; `next` тем же способом читается. Payload уходит в серверные чанки. Факт «версия на проде» для Payload — лог сборки релиза в `deploy-prod.yml` (`+ payload 3.90.1`), так и доложено.
 - **Грабля D-046 на себе:** python-heredoc внутри Bash съел `\1` и `\n` в sed-выражении (ушло в PR #72 с первого раза сломанным — поймано глазами в diff до пуша). Файлы править инструментом записи, не heredoc.
 
-**Следующие шаги по этой нитке:** (1) CSP + `poweredByHeader: false` — вторая строка отчёта Мозгу (`frame-ancestors 'self'; form-action 'self'; base-uri 'self'`); (2) аудит зависимостей по расписанию (#312): workflow `pnpm audit --prod --audit-level=high` пн/чт + кнопка + при смене lockfile, не required; (3) `next lint` deprecated — миграция на ESLint CLI отдельно.
+**Следующие шаги:** (0) остаток почты — D-096 / D-097 / D-088 строки к 02.10, erratum `[ … ] && echo` под `set -e` (проверить свои workflow); (1) CSP + `poweredByHeader: false` — вторая строка отчёта Мозгу (`frame-ancestors 'self'; form-action 'self'; base-uri 'self'`); (2) аудит зависимостей по расписанию (#312): workflow `pnpm audit --prod --audit-level=high` пн/чт + кнопка + при смене lockfile, не required; (3) `next lint` deprecated — миграция на ESLint CLI отдельно.
 
 **Остальная почта, по срокам:** erratum `grep -q` под pipefail (строка к 22.09 — проверить гейты/смоуки на `cmd | grep -q`); D-089 снять `kalinino.service` и таймер с бокса, каталог → `kalinino.retired-2026-09-12`, отчёт с `ss` по 3006; аудит зависимостей по расписанию (#312, пн/чт, не required); D-096 / D-097 / D-088 — строки к 02.10; erratum `[ … ] && echo` под `set -e` — проверить свои workflow.
 
