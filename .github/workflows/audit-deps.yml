@@ -1,0 +1,92 @@
+name: Аудит зависимостей (расписание)
+
+# Пункт 3 мандата Мозга 14.09 (#312): уязвимость в зависимости появляется не тогда,
+# когда меняется lockfile, а когда публикуется advisory — поэтому проверка по
+# расписанию, а не только на PR. Портал вМалмыже так нашёл у себя четыре critical
+# в первый же прогон.
+#
+# Красный прогон здесь — СИГНАЛ, а не блок: job не в required checks `main`
+# (там только `gates`), и делать его обязательным нельзя — advisory на транзитивную
+# зависимость, у которой ещё нет патча, заморозил бы все мержи. Порог high:
+# critical/high надо чинить, moderate/low — читать.
+#
+# Только prod-дерево (--prod): devDependencies на прод не едут. Чинить — правкой
+# пинов/overrides, НЕ `audit fix --omit=dev`: он выносит devDependencies из
+# дерева, и следующий tsc «пропадает» (G385).
+
+on:
+  schedule:
+    # Пн и Чт, 06:20 UTC (09:20 MSK). Не в :00 — в круглые минуты очередь раннеров длиннее.
+    - cron: '20 6 * * 1,4'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'web/pnpm-lock.yaml'
+      - 'web/package.json'
+      - '.github/workflows/audit-deps.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'web/pnpm-lock.yaml'
+      - 'web/package.json'
+      - '.github/workflows/audit-deps.yml'
+
+concurrency:
+  group: audit-deps-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Enable corepack + pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.15.0 --activate
+
+      # Аудит читает lockfile, устанавливать дерево не нужно — прогон за секунды.
+      - name: pnpm audit --prod (порог high)
+        shell: bash
+        run: |
+          # JSON — в файл, сводку печатаем сами: коробочный вывод pnpm на 40 находок
+          # нечитаем, а нужен ответ на два вопроса — сколько critical/high и через
+          # какой наш прямой пин они приезжают. Код выхода — от порога high.
+          set +e
+          pnpm audit --prod --json > /tmp/audit.json
+          set -e
+          node - <<'JS'
+          const fs = require('fs');
+          const d = JSON.parse(fs.readFileSync('/tmp/audit.json', 'utf8'));
+          const v = d.metadata.vulnerabilities;
+          console.log(`critical ${v.critical} · high ${v.high} · moderate ${v.moderate} · low ${v.low}`);
+          const rows = new Map();
+          for (const a of Object.values(d.advisories)) {
+            if (a.severity !== 'critical' && a.severity !== 'high') continue;
+            const via = new Set();
+            for (const f of a.findings) for (const p of f.paths) via.add(p.split('>')[1] ?? p);
+            const key = `${a.severity}\t${a.module_name}\tpatched ${a.patched_versions}`;
+            const cur = rows.get(key) ?? new Set();
+            for (const x of via) cur.add(x);
+            rows.set(key, cur);
+          }
+          if (rows.size) {
+            console.log('\nсерьёзность\tпакет\tисправлено в\tчерез наш пин');
+            for (const [k, via] of [...rows].sort()) console.log(`${k}\t${[...via].sort().join(', ')}`);
+          }
+          const bad = v.critical + v.high;
+          if (bad > 0) {
+            console.log(`::error::critical+high в prod-дереве: ${bad} — чинить пинами/overrides, не audit fix --omit=dev (G385)`);
+            process.exit(1);
+          }
+          console.log('critical и high — 0');
+          JS
