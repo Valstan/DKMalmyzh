@@ -100,12 +100,20 @@ jobs:
           # отчёт Мозгу по мандату 14.09 требует именно факт с бокса.
           REL=/home/valstan/dkmalmyzh/current
           for pkg in next payload @payloadcms/db-postgres @payloadcms/next; do
-            v=$(node -e "console.log(require('$REL/node_modules/$pkg/package.json').version)" 2>/dev/null || echo '?')
-            echo "== версия $pkg на проде: $v"
+            v=$(node -e "console.log(require('$REL/node_modules/$pkg/package.json').version)" 2>/dev/null || true)
+            # В standalone-бандле pnpm-раскладка: не-hoisted пакеты лежат только в
+            # node_modules/.pnpm/<имя>@<версия>/…, верхнего symlink у них нет.
+            if [ -z "$v" ]; then
+              key=$(printf '%s' "$pkg" | sed 's#/#+#;s#@##')
+              v=$(ls "$REL/node_modules/.pnpm" 2>/dev/null | grep -E "^${key}@[0-9]" | sed -E 's/^[^@]+@([0-9][^_]*).*/\1/' | sort -u | tr '\n' ' ')
+            fi
+            echo "== версия $pkg на проде: ${v:-?}"
           done
           # Чужие POST с выдуманными Server Action — так сканеры щупают Next на
           # известные дыры (письмо Мозга 14.09). Считаем за сутки, не печатаем тела.
           echo "== 'Failed to find Server Action' за 24 ч: $(sudo journalctl -u dkmalmyzh --since '24 hours ago' --no-pager -o cat | grep -c 'Failed to find Server Action' || true)"
+          STARTED=$(systemctl show dkmalmyzh -p ExecMainStartTimestamp --value)
+          echo "== …из них после старта юнита ($STARTED): $(sudo journalctl -u dkmalmyzh --since "$STARTED" --no-pager -o cat | grep -c 'Failed to find Server Action' || true)"
           echo "== журнал приложения, последние $N строк (без префикса) =="
           sudo journalctl -u dkmalmyzh -n "$N" --no-pager -o cat
           echo "== журнал vk-sync.service, последние 20 строк =="
