@@ -114,7 +114,12 @@ jobs:
           MISSING=""
           for f in web/src/migrations/*.sql; do
             NAME=$(basename "$f" .sql)
-            printf '%s\n' "$APPLIED" | grep -qxF "$NAME" || MISSING="$MISSING $NAME"
+            # Без пайпа: `printf | grep -q` под pipefail отдаёт 141 с вероятностью (G355),
+            # и применённая миграция засчиталась бы как отсутствующая.
+            case $'\n'"$APPLIED"$'\n' in
+              *$'\n'"$NAME"$'\n'*) ;;
+              *) MISSING="$MISSING $NAME" ;;
+            esac
           done
 
           if [ -n "$MISSING" ]; then
@@ -184,7 +189,12 @@ jobs:
           DRIFT=""
           for slug in $SLUGS; do
             COL="$(printf '%s' "$slug" | tr '-' '_')_id"
-            printf '%s\n' "$LOCKED_COLS" | grep -qxF "$COL" || DRIFT="$DRIFT $slug"
+            # Без пайпа (G355): у Казанской ровно здесь «пропадала» колонка — два
+            # красных выката подряд при исправной схеме.
+            case $'\n'"$LOCKED_COLS"$'\n' in
+              *$'\n'"$COL"$'\n'*) ;;
+              *) DRIFT="$DRIFT $slug" ;;
+            esac
           done
           NCOLS=$(printf '%s\n' "$LOCKED_COLS" | grep -v '^parent_id$' | grep -c '_id$' || true)
 

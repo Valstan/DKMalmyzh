@@ -99,7 +99,7 @@ jobs:
             *) echo "::error::неизвестная операция"; exit 1 ;;
           esac
           case "$SKIP_COUNT" in true|false|'') ;; *) echo "::error::skip_count_check — только true/false"; exit 1 ;; esac
-          if [ -n "$SLUG" ] && ! printf '%s' "$SLUG" | grep -qE '^[a-z0-9-]{1,64}$'; then
+          if [ -n "$SLUG" ] && ! [[ "$SLUG" =~ ^[a-z0-9-]{1,64}$ ]]; then
             echo "::error::slug должен быть строчными латинскими буквами, цифрами и дефисом"
             exit 1
           fi

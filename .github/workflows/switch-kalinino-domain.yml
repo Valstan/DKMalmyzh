@@ -150,7 +150,10 @@ jobs:
             on_fail() { echo "::error::переключение не завершено — возвращаю vhost Калинино"; sudo rm -f "$OURS_ENABLED"; restore_theirs; nginx_test && sudo systemctl reload nginx || true; }
             trap 'on_fail; exit 1' ERR
 
-            if sudo certbot certificates --cert-name "$DOMAIN" 2>/dev/null | grep -q "$KAL"; then
+            # Без пайпа (G355): ложное «не найдено» здесь дёрнуло бы certbot --expand
+            # повторно, а ниже — ERR-trap с откатом vhost при уже выпущенном сертификате.
+            CERT_NAMES=$(sudo certbot certificates --cert-name "$DOMAIN" 2>/dev/null || true)
+            if [[ "$CERT_NAMES" == *"$KAL"* ]]; then
               echo "сертификат портала уже покрывает имя Калинино"
             else
               sudo cp /tmp/kalinino-http.conf "$OURS_AVAIL"
@@ -174,7 +177,8 @@ jobs:
               sudo certbot certonly --webroot -w "$WEBROOT" \
                 -d "$DOMAIN" -d "$LEGACY" -d "$KAL" --cert-name "$DOMAIN" --expand \
                 --non-interactive --agree-tos
-              sudo certbot certificates --cert-name "$DOMAIN" 2>/dev/null | grep -q "$KAL"
+              CERT_NAMES=$(sudo certbot certificates --cert-name "$DOMAIN" 2>/dev/null || true)
+              [[ "$CERT_NAMES" == *"$KAL"* ]]
               echo "сертификат расширен третьим именем"
             fi
 

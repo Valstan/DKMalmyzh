@@ -72,7 +72,7 @@ jobs:
       - name: migrate:create
         run: |
           set -euo pipefail
-          printf '%s' "$NAME" | grep -qE '^[a-z0-9_]{1,40}$' || { echo "::error::имя — латиница/цифры/подчёркивание"; exit 1; }
+          [[ "$NAME" =~ ^[a-z0-9_]{1,40}$ ]] || { echo "::error::имя — латиница/цифры/подчёркивание"; exit 1; }
           BEFORE=$(ls src/migrations/*.ts | wc -l)
           pnpm migrate:create "$NAME" --force-accept-warning 2>&1 | tee /tmp/create.log
           if grep -q "No schema changes detected" /tmp/create.log; then
