@@ -119,6 +119,7 @@ fallback «если шлюз недоступен — сходим напрям�
 |---|---|---|
 | `POST /internal/seed-institutions` | заводит/обновляет каталог домов культуры (черновиками) | вручную — `internal-run.yml` |
 | `POST /internal/vk-sync` | импорт записей из ВК через шлюз SARAFAN | таймер systemd, плюс вручную оттуда же |
+| `POST /internal/publish-section` | публикация раздела: карточка + свежие записи (`?slug=`, `?days=`, `?dry=1`) | вручную — `internal-run.yml` |
 | `POST /internal/reslug-vk` | разовое приведение адресов записей ВК к уникальным (`?dry=1`) | вручную — `internal-run.yml` |
 | `POST /internal/kalinino-transfer` | перенос записей Калинино из выгрузки на боксе (D-074; `?dir=`, `?dry=1`; коллизии адресов — условие выхода, 409) | вручную — `internal-run.yml`; домен переключает `switch-kalinino-domain.yml` |
 
