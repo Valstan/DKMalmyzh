@@ -9,7 +9,7 @@ const NEXT_PUBLIC_SERVER_URL =
   process.env.NEXT_PUBLIC_SERVER_URL || process.env.__NEXT_PRIVATE_ORIGIN || 'http://localhost:3005'
 
 // Оба боевых домена: next/image отдаёт удалённую картинку только с разрешённого
-// хоста, а прежний домен на переходный период ещё обслуживает страницы.
+// хоста, а второе имя (алиас раздела ДК) обслуживает те же страницы.
 const IMAGE_HOSTS = [
   ...new Set([
     NEXT_PUBLIC_SERVER_URL,

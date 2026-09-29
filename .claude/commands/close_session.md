@@ -1,8 +1,8 @@
 ---
-description: Закрыть сессию «ДК Малмыж» — сохранить состояние в SESSION_HANDOFF и запушить всё через PR-flow
+description: Закрыть сессию «Культура Малмыжского района» — сохранить состояние в SESSION_HANDOFF и запушить всё через PR-flow
 ---
 
-# /close_session — финализация сессии «ДК Малмыж»
+# /close_session — финализация сессии «Культура Малмыжского района»
 
 Цель: оставить **explicit pointer** «куда шли» в `docs/SESSION_HANDOFF.md` и убедиться, что **всё на `origin`** (handoff + рабочие PR), а brain не тронут.
 

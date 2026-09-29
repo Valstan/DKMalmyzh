@@ -642,23 +642,26 @@ jobs:
           esac
           rm -f /tmp/smoke.html /tmp/smoke.hdr
 
-          # Прежний домен обязан отдавать 301 на портал. Без этой проверки
-          # переключение доменов не проверяет никто: сайт на новом имени зелёный,
-          # а старые ссылки могут молча уходить на default_server соседа.
+          # Второе имя — алиас портала (адрес раздела ДК, решение 29.09): отдаёт
+          # тот же сайт, 301 больше нет. Без этой проверки алиас может молча
+          # уходить на default_server соседа: сайт на главном имени зелёный,
+          # а второе имя чужое. Каноникал при этом смотрит на главный домен.
           LEGACY=xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai
-          loc=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code} %{redirect_url}'                 --max-time 15 "https://$LEGACY/")
-          echo "прежний домен / → $loc"
-          case "$loc" in
-            301*"xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai/dk/rckd") echo "редирект корня прежнего домена OK" ;;
-            *) echo "::error::прежний домен не отдаёт 301 на раздел РЦКД: $loc"; exit 1 ;;
-          esac
+          code=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /tmp/alias.html -w '%{http_code}'                       --max-time 15 "https://$LEGACY/")
+          echo "второе имя / → $code"
+          [ "$code" = "200" ] || { echo "::error::второе имя не отдаёт 200: $code"; exit 1; }
+          if grep -q "Малмыж" /tmp/alias.html; then
+            echo "алиас отдаёт наш сайт: маркер «Малмыж» на месте"
+          else
+            echo "::error::под вторым именем отвечает не наш сайт"
+            grep -oiE "<title>[^<]*</title>" /tmp/alias.html | head -1 || true
+            exit 1
+          fi
+          rm -f /tmp/alias.html
 
-          deep=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code} %{redirect_url}'                  --max-time 15 "https://$LEGACY/news")
-          echo "прежний домен /news → $deep"
-          case "$deep" in
-            301*"xn--80atdujec4e.xn--80adkdyec4j.xn--p1ai/news") echo "глубокая ссылка сохраняет путь OK" ;;
-            *) echo "::error::глубокая ссылка прежнего домена не сохраняет путь: $deep"; exit 1 ;;
-          esac
+          deep=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code}'                             --max-time 15 "https://$LEGACY/news")
+          echo "второе имя /news → $deep"
+          [ "$deep" = "200" ] || { echo "::error::глубокая ссылка второго имени не отдаёт 200: $deep"; exit 1; }
           REMOTE
 
       - name: On failure — журналы прода
