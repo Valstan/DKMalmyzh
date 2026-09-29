@@ -31,6 +31,10 @@ on:
           - kalinino-transfer
       slug:
         description: 'Только одно учреждение (slug); пусто — все. Работает для vk-sync (необязательно) и publish-section (обязательно)'
+      days:
+        description: 'publish-section: возраст записей в днях (по умолчанию 10, потолок 90)'
+        required: false
+        type: string
         required: false
         type: string
       dry_run:
@@ -91,6 +95,7 @@ jobs:
         env:
           OPERATION: ${{ inputs.operation }}
           SLUG: ${{ inputs.slug }}
+          DAYS: ${{ inputs.days }}
           DRY_RUN: ${{ inputs.dry_run }}
           SKIP_COUNT: ${{ inputs.skip_count_check }}
         run: |
@@ -104,6 +109,10 @@ jobs:
             echo "::error::slug должен быть строчными латинскими буквами, цифрами и дефисом"
             exit 1
           fi
+          if [ -n "$DAYS" ] && ! [[ "$DAYS" =~ ^[0-9]{1,3}$ ]]; then
+            echo "::error::days — число дней 1..90 (потолок проверяет маршрут)"
+            exit 1
+          fi
           case "$DRY_RUN" in true|false|'') ;; *) echo "::error::dry_run — только true/false"; exit 1 ;; esac
 
           # ⚠️ Значения передаются ИМЕНОВАННЫМИ переменными, а не позиционными
@@ -114,10 +123,11 @@ jobs:
           # slug, а dry остался пустым — операция отработала боевым прогоном,
           # отрапортовав `dryRun: false`. Подстановка безопасна: значения выше
           # проверены по белому списку и форме.
-          ssh dkmalmyzh "OP='$OPERATION' SLUG='$SLUG' DRY='${DRY_RUN:-false}' SKIP_COUNT='${SKIP_COUNT:-false}' bash -s" <<'REMOTE'
+          ssh dkmalmyzh "OP='$OPERATION' SLUG='$SLUG' DAYS='${DAYS:-}' DRY='${DRY_RUN:-false}' SKIP_COUNT='${SKIP_COUNT:-false}' bash -s" <<'REMOTE'
           set -euo pipefail
           OP="${OP:?операция не передана}"
           SLUG="${SLUG:-}"
+          DAYS="${DAYS:-}"
           DRY="${DRY:-false}"
           SKIP_COUNT="${SKIP_COUNT:-false}"
 
@@ -162,6 +172,9 @@ jobs:
           fi
           if [ "$DRY" = "true" ]; then
             case "$URL" in *\?*) URL="$URL&dry=1" ;; *) URL="$URL?dry=1" ;; esac
+          fi
+          if [ "$OP" = "publish-section" ] && [ -n "$DAYS" ]; then
+            case "$URL" in *\?*) URL="$URL&days=$DAYS" ;; *) URL="$URL?days=$DAYS" ;; esac
           fi
           echo "запускаю $OP${DRY:+ (dry=$DRY)}"
 
