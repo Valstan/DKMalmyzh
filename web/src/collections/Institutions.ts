@@ -139,7 +139,7 @@ export const Institutions: CollectionConfig<'institutions'> = {
       defaultValue: false,
       admin: {
         position: 'sidebar',
-        description: 'На раздел головного учреждения ведёт прежний домен домкультуры.вмалмыже.рф.',
+        description: 'Раздел головного учреждения открывается и по своему адресу домкультуры.вмалмыже.рф (алиас портала: имя в браузере сохраняется).',
       },
     },
     slugField(),

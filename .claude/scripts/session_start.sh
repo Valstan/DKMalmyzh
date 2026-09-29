@@ -5,7 +5,7 @@
 # Вызов: bash .claude/scripts/session_start.sh   (из .claude/settings.json → hooks.SessionStart)
 cd "$(dirname "$0")/../.." || exit 0
 
-echo "=== DKMalmyzh · SessionStart · $(date +%F) ==="
+echo "=== KulturaMalmyzh · SessionStart · $(date +%F) ==="
 git status -sb 2>/dev/null | head -5
 git log --oneline -3 2>/dev/null
 echo
