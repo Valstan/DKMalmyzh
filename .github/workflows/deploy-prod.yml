@@ -13,6 +13,9 @@ name: Deploy to production
 #   vars.DEPLOY_SSH_PORT           — внешний SSH-порт. Осознанно оставлен в vars: значение
 #                                    стандартное и сверхкороткое, а маскируется КАЖДОЕ его
 #                                    вхождение — в secrets оно замазало бы пол-лога.
+#   secrets.VAULT_URL                — адрес vault КАРМАНа (паспортный путь: сессия по OIDC,
+#                                    зеркало ключа приёмника в свою комнату, грант Сарафану)
+#   secrets.GATEWAY_URL              — адрес шлюза SARAFAN (проба ключа с бокса)
 #   vars.NEXT_PUBLIC_SERVER_URL    — боевой домен (punycode домкультуры.вмалмыже.рф; бейкается в бандл при сборке)
 #   vars.NEXT_PUBLIC_YANDEX_METRICA_ID — номер счётчика Метрики (D-017); пусто → тег не рендерится
 #   vars.NEXT_PUBLIC_METRIKA_INFORMER  — '1' → видимый информер в подвале (только после включения настройки в кабинете)
@@ -493,6 +496,133 @@ jobs:
           systemctl restart dkmalmyzh
           echo "env обновлён, dkmalmyzh перезапущен"
           REMOTE
+
+      # Приёмник стандартного эшелона (мандат Мозга 29.09, строка 06.10):
+      # POST /api/ingest/posts + ключ KULTURA_INGEST_KEY грантом в комнату setka.
+      #
+      # Ключ генерируется ЗДЕСЬ, на боксе (как INTERNAL_OPS_SECRET выше): значение
+      # нужно только боксу, и через inputs прогона оно не проходит — иначе
+      # оказалось бы в публичном логе (D-038). Зеркало в свою комнату vault и грант
+      # Сарафану — паспортом КАРМАНа тем же прогоном (двусторонний путь, как
+      # SABANTUY_INGEST_KEY id=14 у Сабантуя). Значения в письмах не ходят.
+      #
+      # Идемпотентно: ключ стоит и грант выдан — шаг ничего не меняет.
+      # Vault недоступен — ключ и приёмник всё равно встают (проба 401 ниже),
+      # грант откладывается с предупреждением и докладывается письмом Мозгу.
+      - name: Приёмник — ключ, зеркало, грант, проба 401
+        env:
+          VAULT_URL: ${{ secrets.VAULT_URL }}
+        run: |
+          set -euo pipefail
+          umask 077
+
+          # 1. Ключ на боксе: есть и непуст — не трогаем; нет — генерируем и
+          # рестартим (значение печатаем только фактом, никогда — самим).
+          KEYSTATE=$(ssh dkmalmyzh 'sudo bash -s' <<'REMOTE'
+          set -e
+          trap 'rm -f /tmp/k-ingest.txt' EXIT INT TERM
+          ENV=/etc/dkmalmyzh/dkmalmyzh.env
+          if grep -q '^KULTURA_INGEST_KEY=.' "$ENV"; then
+            echo "exists"
+          else
+            printf 'KULTURA_INGEST_KEY=%s\n' "$(openssl rand -hex 32)" >> "$ENV"
+            chmod 640 "$ENV"
+            systemctl restart dkmalmyzh
+            echo "generated+restarted"
+          fi
+          grep '^KULTURA_INGEST_KEY=' "$ENV" | head -1 | sed 's/^KULTURA_INGEST_KEY=//;s/^"//;s/"$//' > /tmp/k-ingest.txt
+          chmod 644 /tmp/k-ingest.txt
+          REMOTE
+          )
+          echo "KULTURA_INGEST_KEY на боксе: $KEYSTATE"
+          case "$KEYSTATE" in
+            exists|generated+restarted) ;;
+            *) echo "::error::неожиданное состояние ключа: $KEYSTATE"; exit 1 ;;
+          esac
+          sleep 8 # дать сервису подняться, если был рестарт
+          scp -q dkmalmyzh:/tmp/k-ingest.txt k-ingest.txt
+          ssh dkmalmyzh 'rm -f /tmp/k-ingest.txt' || true
+          # Второй рубеж против пустого значения — до зеркала в vault.
+          [ -s k-ingest.txt ] || { echo "::error::ключ с бокса пуст — в vault ничего не кладём"; exit 1; }
+
+          # Один trap на шаг: отзыв vault-сессии и уборка временных файлов (G291,
+          # G292 — второй trap молча заменил бы первый, и самоотзыв пропал бы).
+          TOKEN=""
+          cleanup() {
+            if [ -n "$TOKEN" ] && [ -n "${VAULT_URL:-}" ]; then
+              curl -sS -X DELETE "$VAULT_URL/api/secrets/session" -H "Authorization: Bearer $TOKEN" \
+                -o /dev/null -w 'DELETE /session → %{http_code}\n' 2>/dev/null || true
+            fi
+            rm -f k-ingest.txt mirror.json mirror-out.txt grants.json grant.json grant-out.txt
+          }
+          trap cleanup EXIT
+          trap 'cleanup; exit 130' INT TERM
+
+          # 2. Зеркало в свою комнату + грант Сарафану — best-effort: их
+          # недоступность откладывает грант, но не роняет деплой.
+          if [ -z "${VAULT_URL:-}" ]; then
+            echo "::warning::secrets.VAULT_URL не задан — зеркало и грант пропущены, только проба 401"
+          elif [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "::warning::OIDC недоступен (permissions: id-token: write) — зеркало и грант пропущены"
+          else
+            ASSERTION="$(curl -sf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=karman-vault" | jq -r '.value // empty')" || ASSERTION=""
+            if [ -z "$ASSERTION" ]; then
+              echo "::warning::удостоверение прогона не выдано — зеркало и грант пропущены"
+            else
+              echo "::add-mask::$ASSERTION"
+              scode=$(curl -s -o session.json -w '%{http_code}' --max-time 20 -X POST \
+                "$VAULT_URL/api/secrets/session" -H "Authorization: Bearer $ASSERTION") || scode="curl-exit-$?"
+              if [ "$scode" != "201" ]; then
+                echo "::warning::vault /session → $scode — зеркало и грант пропущены"
+                rm -f session.json
+              else
+                # Токен пришёл ответом — маскируем до первого использования (G291).
+                TOKEN="$(jq -r '.token // empty' session.json 2>/dev/null || true)"
+                CANWRITE="$(jq -r '.canWrite // false' session.json 2>/dev/null || true)"
+                rm -f session.json
+                [ -n "$TOKEN" ] || { echo "::warning::201, но token пуст"; TOKEN=""; }
+                if [ -n "$TOKEN" ]; then
+                  echo "::add-mask::$TOKEN"
+                  echo "сессия vault открыта (canWrite=$CANWRITE)"
+                  if [ "$CANWRITE" != "true" ]; then
+                    echo "::warning::сессия без права записи — зеркало и грант пропущены"
+                  else
+                    echo "::add-mask::$(cat k-ingest.txt)"
+                    jq -n --arg k "$(cat k-ingest.txt)" '{secrets:{KULTURA_INGEST_KEY:$k}}' > mirror.json
+                    mcode=$(curl -s -o mirror-out.txt -w '%{http_code}' --max-time 20 -X POST \
+                      "$VAULT_URL/api/secrets" -H "Authorization: Bearer $TOKEN" \
+                      -H 'Content-Type: application/json' --data @mirror.json) || mcode="curl-exit-$?"
+                    case "$mcode" in
+                      200|201|204) echo "зеркало KULTURA_INGEST_KEY в свою комнату: $mcode" ;;
+                      *) echo "::warning::зеркало не принято: HTTP $mcode" ;;
+                    esac
+                    GCODE="$(curl -s -o grants.json -w '%{http_code}' --max-time 20 \
+                      "$VAULT_URL/api/secrets/grants" -H "Authorization: Bearer $TOKEN" || true)"
+                    HAVE="$(jq -r '(if type == "array" then . else (.issued // .grants // .items // []) end) | map(select(((.sourceKey // .key // "") == "KULTURA_INGEST_KEY") and ((.targetSlug // .target_slug // "") == "setka"))) | length' grants.json 2>/dev/null || echo 0)"
+                    echo "GET grants: $GCODE, выдач KULTURA_INGEST_KEY → setka: ${HAVE:-0}"
+                    if [ "${HAVE:-0}" = "0" ]; then
+                      jq -n '{key:"KULTURA_INGEST_KEY", target_slug:"setka", alias:"KULTURA_INGEST_KEY", note:"мандат 29.09: приёмник стандартного эшелона Сарафана"}' > grant.json
+                      CODE="$(curl -s -o grant-out.txt -w '%{http_code}' --max-time 20 -X POST \
+                        "$VAULT_URL/api/secrets/grants" -H "Authorization: Bearer $TOKEN" \
+                        -H 'Content-Type: application/json' --data @grant.json || true)"
+                      case "$CODE" in
+                        200|201) echo "grant → setka предложен: $CODE (alias KULTURA_INGEST_KEY)" ;;
+                        409) echo "grant → setka: 409, уже есть — идемпотентно" ;;
+                        *) echo "::warning::grant → setka не предложен: HTTP $CODE"; head -c 300 grant-out.txt || true; echo ;;
+                      esac
+                    fi
+                  fi
+                fi
+              fi
+            fi
+          fi
+
+          # 3. Приёмка по контракту: без ключа маршрут отвечает 401 (не 503 — ключ
+          # стоит, не 404 — маршрут на месте). Проверяет и код, и ключ заодно.
+          code=$(ssh dkmalmyzh 'curl -s -o /dev/null -w "%{http_code}" --max-time 15 -X POST -H "Content-Type: application/json" --data "{}" http://127.0.0.1:3005/api/ingest/posts' || true)
+          echo "POST /api/ingest/posts без ключа → $code (ожидалось 401)"
+          [ "$code" = "401" ] || { echo "::error::приёмник не отвечает 401 без ключа: $code"; exit 1; }
 
       # Юниты импорта из ВК. Ставятся каждым деплоем идемпотентно: файл меняется —
       # daemon-reload и рестарт таймера, не меняется — не трогаем. Таймер включаем
