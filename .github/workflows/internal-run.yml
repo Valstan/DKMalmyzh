@@ -1,7 +1,7 @@
 name: Служебная операция на проде (manual)
 
-# Ручной запуск служебных операций портала: заведение каталога домов культуры и
-# импорт из ВК.
+# Ручной запуск служебных операций портала: заведение каталога домов культуры,
+# импорт из ВК и публикация разделов.
 #
 # Почему через SSH и curl, а не отдельной командой на боксе: обе операции живут
 # внутри работающего приложения (`/internal/*`), потому что на прод едет
@@ -26,14 +26,15 @@ on:
         options:
           - seed-institutions
           - vk-sync
+          - publish-section
           - reslug-vk
           - kalinino-transfer
       slug:
-        description: 'Только одно учреждение (slug); пусто — все. Работает для vk-sync'
+        description: 'Только одно учреждение (slug); пусто — все. Работает для vk-sync (необязательно) и publish-section (обязательно)'
         required: false
         type: string
       dry_run:
-        description: 'Только показать план, ничего не менять (reslug-vk, kalinino-transfer)'
+        description: 'Только показать план, ничего не менять (publish-section, reslug-vk, kalinino-transfer)'
         required: false
         default: false
         type: boolean
@@ -95,7 +96,7 @@ jobs:
         run: |
           set -e
           case "$OPERATION" in
-            seed-institutions|vk-sync|reslug-vk|kalinino-transfer) ;;
+            seed-institutions|vk-sync|publish-section|reslug-vk|kalinino-transfer) ;;
             *) echo "::error::неизвестная операция"; exit 1 ;;
           esac
           case "$SKIP_COUNT" in true|false|'') ;; *) echo "::error::skip_count_check — только true/false"; exit 1 ;; esac
