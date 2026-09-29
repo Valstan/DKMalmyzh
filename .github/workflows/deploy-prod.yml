@@ -518,9 +518,14 @@ jobs:
 
           # 1. Ключ на боксе: есть и непуст — не трогаем; нет — генерируем и
           # рестартим (значение печатаем только фактом, никогда — самим).
-          KEYSTATE=$(ssh dkmalmyzh 'sudo bash -s' <<'REMOTE'
+          #
+          # Файл-мост /tmp/k-ingest.txt живёт между этим ssh и scp ниже: EXIT-trap
+          # на удалённой стороне здесь НЕ ставим — он сработал бы на штатном выходе
+          # и удалил файл до скачивания (так лёг первый прогон). Чистим явно после
+          # scp; протухший хвост затирается в начале следующего прогона.
+          KEYRAW=$(ssh dkmalmyzh 'sudo bash -s' <<'REMOTE'
           set -e
-          trap 'rm -f /tmp/k-ingest.txt' EXIT INT TERM
+          rm -f /tmp/k-ingest.txt
           ENV=/etc/dkmalmyzh/dkmalmyzh.env
           if grep -q '^KULTURA_INGEST_KEY=.' "$ENV"; then
             echo "exists"
@@ -531,9 +536,12 @@ jobs:
             echo "generated+restarted"
           fi
           grep '^KULTURA_INGEST_KEY=' "$ENV" | head -1 | sed 's/^KULTURA_INGEST_KEY=//;s/^"//;s/"$//' > /tmp/k-ingest.txt
-          chmod 644 /tmp/k-ingest.txt
+          chown valstan:valstan /tmp/k-ingest.txt
+          chmod 600 /tmp/k-ingest.txt
           REMOTE
           )
+          # Состояние — последняя строка: systemctl и sudo иногда печатают своё.
+          KEYSTATE="${KEYRAW##*$'\n'}"
           echo "KULTURA_INGEST_KEY на боксе: $KEYSTATE"
           case "$KEYSTATE" in
             exists|generated+restarted) ;;
