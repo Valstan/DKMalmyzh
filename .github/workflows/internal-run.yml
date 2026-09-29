@@ -35,8 +35,6 @@ on:
         description: 'publish-section: возраст записей в днях (по умолчанию 10, потолок 90)'
         required: false
         type: string
-        required: false
-        type: string
       dry_run:
         description: 'Только показать план, ничего не менять (publish-section, reslug-vk, kalinino-transfer)'
         required: false
