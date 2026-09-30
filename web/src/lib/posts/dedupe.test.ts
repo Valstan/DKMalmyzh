@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { DEDUPE_WINDOW_DAYS, dedupeKey, keeperId, normaliseText } from './dedupe'
+import { DEDUPE_WINDOW_DAYS, dedupeKey, isTombstone, keeperId, normaliseText } from './dedupe'
 
 // Чистая часть чистки дублей: что считать дублем и какую копию оставить.
 describe('normaliseText', () => {
@@ -85,5 +85,25 @@ describe('keeperId', () => {
 describe('окно дат', () => {
   it('по умолчанию месяц — перепост через полгода это другая новость', () => {
     expect(DEDUPE_WINDOW_DAYS).toBe(30)
+  })
+})
+
+describe('isTombstone', () => {
+  it('заглушка ВК опознаётся независимо от регистра и лишних пробелов', () => {
+    expect(isTombstone({ title: 'Пост удалён' })).toBe(true)
+    expect(isTombstone({ title: '  пост   удалён ' })).toBe(true)
+  })
+
+  it('обычная новость заглушкой не считается', () => {
+    expect(isTombstone({ title: 'Пост удалён, но с текстом' })).toBe(false)
+    expect(isTombstone({ title: 'Встреча в клубе' })).toBe(false)
+    expect(isTombstone({ title: '' })).toBe(false)
+  })
+
+  it('две заглушки из разных стен — это не «пара дублей», а две пустышки', () => {
+    // Текст «Пост удалён» у обеих одинаковый, но разбирать их должна ветка
+    // заглушек: так видно в отчёте, что удалено, и ничего не теряется зря.
+    expect(isTombstone({ title: 'Пост удалён' })).toBe(true)
+    expect(isTombstone({ title: 'Пост удалён' })).toBe(true)
   })
 })

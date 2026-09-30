@@ -26,6 +26,18 @@ import type { Payload } from 'payload'
 
 export const DEDUPE_WINDOW_DAYS = 30
 
+// Заглушки, которыми ВК отвечает на удалённые посты: содержания в них нет,
+// только надпись. Держать их на сайте незачем, но и «дублями» они не являются —
+// поэтому операция считает их ОТДЕЛЬНОЙ строкой отчёта, а не молча частью
+// «неразбираемого».
+export const TOMBSTONE_TITLES = ['пост удалён', 'запись удалена', 'запись недоступна']
+
+export function isTombstone(doc: Pick<DedupeDoc, 'title'>): boolean {
+  const title = normaliseText(doc.title)
+  if (!title) return false
+  return TOMBSTONE_TITLES.includes(title)
+}
+
 export type DedupeDoc = {
   id: number
   title?: string | null
@@ -83,6 +95,8 @@ export type DedupeSummary = {
   undecidable: number
   groups: number
   removed: number
+  tombstones: number
+  tombstonesRemoved: number
   byInstitution: { slug?: string | null; title?: string | null; removed: number }[]
   samples: { title: string; keeper: number; remove: number[] }[]
   messages: string[]
@@ -129,6 +143,8 @@ export async function dedupePosts(
     undecidable: 0,
     groups: 0,
     removed: 0,
+    tombstones: 0,
+    tombstonesRemoved: 0,
     byInstitution: [],
     samples: [],
     messages: [],
@@ -145,8 +161,10 @@ export async function dedupePosts(
   })
   const docs = all.docs as unknown as DedupeDoc[]
   summary.scanned = docs.length
-  summary.undecidable = docs.filter((doc) => dedupeKey(doc) === null).length
 
+  // `undecidable` считаем по подготовленным записям, где текст уже разобран:
+  // в сырых документах поля `content` нет вовсе, и счётчик вышел бы «все
+  // записи» — то есть на первом же прогоне сообщал бы чушь.
   const heads = new Map<number, boolean>()
   const institutions = await payload.find({
     collection: 'institutions',
@@ -195,6 +213,12 @@ export async function dedupePosts(
     }
   })
 
+  // Заглушки «Пост удалён» разбираем отдельно: содержания в них нет, в пару
+  // к дублям они не попадают, а держать их на сайте незачем.
+  const tombstones = prepared.filter((doc) => isTombstone(doc))
+  summary.tombstones = tombstones.length
+  summary.undecidable = prepared.filter((doc) => dedupeKey(doc) === null && !isTombstone(doc)).length
+
   const groups = groupDuplicates(prepared, windowDays)
   summary.groups = groups.length
   summary.removed = groups.reduce((sum, group) => sum + group.remove.length, 0)
@@ -220,7 +244,8 @@ export async function dedupePosts(
   if (dry) {
     say(
       `сухой прогон: записей ${summary.scanned}, из них без текста (не разбираем) ${summary.undecidable}; ` +
-        `групп дублей ${summary.groups}, копий к удалению ${summary.removed}`,
+        `групп дублей ${summary.groups}, копий к удалению ${summary.removed}; ` +
+        `заглушек «пост удалён» ${summary.tombstones}`,
     )
     return summary
   }
@@ -240,6 +265,20 @@ export async function dedupePosts(
     }
   }
 
+  for (const doc of tombstones) {
+    try {
+      await payload.delete({
+        collection: 'posts',
+        id: doc.id,
+        context: { disableRevalidate: true },
+      })
+      summary.tombstonesRemoved += 1
+    } catch (err) {
+      summary.ok = false
+      summary.messages.push(`заглушка #${doc.id} не удалилась: ${(err as Error)?.message ?? err}`)
+    }
+  }
+
   // Проверка: после удаления по ключу должна остаться ровно одна запись.
   const after = await payload.find({ collection: 'posts', pagination: false, depth: 0, limit: 5000, sort: 'id' })
   const afterDocs = after.docs as unknown as DedupeDoc[]
@@ -252,9 +291,17 @@ export async function dedupePosts(
     summary.messages.push(`после чистки осталось групп-дублей: ${left.length}`)
   }
 
+  const leftTombstones = after.docs.filter((row) =>
+    isTombstone(row as unknown as DedupeDoc),
+  )
+  if (leftTombstones.length > 0) {
+    summary.ok = false
+    summary.messages.push(`после чистки осталось заглушек: ${leftTombstones.length}`)
+  }
+
   say(
     `итог: записей было ${summary.scanned}, удалено ${summary.removed} (групп ${summary.groups}), ` +
-      `осталось ${after.docs.length}, ошибок ${summary.messages.length}`,
+      `заглушек удалено ${summary.tombstonesRemoved}, осталось ${after.docs.length}, ошибок ${summary.messages.length}`,
   )
   return summary
 }

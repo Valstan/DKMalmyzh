@@ -74,6 +74,8 @@ const main = async () => {
   const other = await mk(3, 'Самотест: концерт в клубе', 'А в этот раз — викторина для детей')
   // Перепост без текста — остаётся: судить не по чему.
   const repost = await mk(4, 'Самотест: запись от 2026-06-01', '')
+  // Заглушка ВК на удалённый пост — отдельная ветка чистки.
+  const tombstone = await mk(5, 'Пост удалён', 'Пост удалён')
 
   const dry = await dedupePosts(payload, { dry: true })
   const stillThere = await payload.count({ collection: 'posts', where: { id: { equals: dupB } } })
@@ -89,6 +91,8 @@ const main = async () => {
   if ((await count(dupB)) !== 0) problems.push('вторая копия дубля осталась')
   if ((await count(other)) !== 1) problems.push('пост с другим текстом удалён (нельзя)')
   if ((await count(repost)) !== 1) problems.push('перепост без текста удалён (нельзя)')
+  if ((await count(tombstone)) !== 0) problems.push('заглушка «Пост удалён» не удалена')
+  if (live.tombstonesRemoved < 1) problems.push(`заглушек удалено ${live.tombstonesRemoved}, ожидалась хотя бы одна`)
 
   for (const id of createdIds) {
     await payload.delete({ collection: 'posts', id, context: ctx }).catch(() => undefined)
