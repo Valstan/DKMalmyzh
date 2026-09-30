@@ -75,7 +75,9 @@ const main = async () => {
   }
   // Афиша этого же дома — в ленту новостей попасть не должна.
   await mk(100, 'event', 30)
-  // Черновик — не должен появиться ни в одной ленте.
+  // Черновик — не должен появиться ни в одной ленте. Его `vkUid` заведомо вне
+  // диапазона `mk()` выше: `vkUid` уникален, и пересечение уронило бы гейт на
+  // уникальности вместо проверки ленты.
   const draft = await payload.create({
     collection: 'posts',
     context: ctx,
@@ -87,8 +89,8 @@ const main = async () => {
       type: 'news',
       source: 'manual',
       institution: houseId,
-      vkUid: '-999777888_9200',
-      sourceUrl: 'https://vk.com/wall-999777888_9200',
+      vkUid: '-999777888_9999',
+      sourceUrl: 'https://vk.com/wall-999777888_9999',
       _status: 'draft',
     },
   })

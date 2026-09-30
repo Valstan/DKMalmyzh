@@ -108,3 +108,21 @@ async function getMentionFeedPage(
     hasMore: start + limit < docs.length,
   }
 }
+
+// Мягкая деградация для страниц. Сборка на деплое идёт БЕЗ живой БД, и первая
+// же выборка ленты на главной роняла `next build` — то есть релиз целиком. А
+// сбой БД в рантайме отдавал бы посетителю пустую главную. Поэтому ошибка не
+// пробрасывается: страница рендерится без ленты, в журнал пишется строка (без
+// неё «пустая главная» выглядит как решение, а не как отказ), а ISR в 60 секунд
+// чинит страницу сама.
+//
+// Наружу (в `/api/feed`) эта обёртка НЕ надевается: там клиент обязан увидеть
+// отказ и предложить повтор, а не тихую пустую страницу.
+export async function getFeedPageSafe(query: FeedQuery = {}): Promise<FeedPage> {
+  try {
+    return await getFeedPage(query)
+  } catch (err) {
+    console.error(`[feed] лента не собралась: ${(err as Error)?.message ?? err}`)
+    return emptyFeedPage(Math.min(Math.max(query.page ?? 1, 1), 100000))
+  }
+}

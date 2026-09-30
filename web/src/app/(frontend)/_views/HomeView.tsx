@@ -6,7 +6,7 @@ import { getPayload } from 'payload'
 import { SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { formatPostDate } from '../../../lib/format'
-import { FEED_PAGE_SIZE, getFeedPage } from '../../../lib/feed'
+import { FEED_PAGE_SIZE, getFeedPageSafe } from '../../../lib/feed'
 import { FESTIVALS } from '../../../lib/festivals'
 import { PostInstitutionBadge } from '../components/PostCard'
 import { PostFeed } from '../components/PostFeed'
@@ -70,7 +70,7 @@ export async function HomeView() {
   // догружается по мере прокрутки.
   const [home, feed, events] = await Promise.all([
     getHome(),
-    getFeedPage({ limit: FEED_PAGE_SIZE }),
+    getFeedPageSafe({ limit: FEED_PAGE_SIZE }),
     getUpcomingEvents(),
   ])
 
