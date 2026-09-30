@@ -10,8 +10,8 @@ describe('institutionUrl', () => {
 
   it('с доменом — личный адрес как есть', () => {
     expect(
-      institutionUrl({ id: 1, slug: 'rckd', website: 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/dk/rckd' }),
-    ).toBe('https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/dk/rckd')
+      institutionUrl({ id: 1, slug: 'rckd', website: 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/' }),
+    ).toBe('https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/')
   })
 
   it('мусор вместо ссылки — не ссылка, а раздел портала', () => {
@@ -26,7 +26,7 @@ describe('institutionDomainName', () => {
       institutionDomainName({
         id: 1,
         slug: 'rckd',
-        website: 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/dk/rckd',
+        website: 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/',
       }),
     ).toBe('домкультуры.вмалмыже.рф')
     expect(
