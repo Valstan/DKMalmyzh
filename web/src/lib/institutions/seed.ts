@@ -68,6 +68,10 @@ export async function seedInstitutions(payload: Payload): Promise<SeedSummary> {
       // Тема задаётся справочником, как и isHead: это решение о лице раздела,
       // а не правка редактора. Пусто в справочнике — общий вид.
       theme: item.theme ?? null,
+      // Личный домен — тоже данное справочника (как vkSources): правку редактора
+      // следующий прогон перезапишет значением каталога. Пусто — ссылки ведут
+      // на раздел портала.
+      website: item.website ?? null,
     }
 
     if (existing.docs[0]) {

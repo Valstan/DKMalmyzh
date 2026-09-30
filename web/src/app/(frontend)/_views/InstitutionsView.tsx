@@ -3,6 +3,7 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 
 import { withRetry } from '../../../lib/withRetry'
+import { institutionDomainName, institutionUrl } from '../../../lib/institutions'
 
 type InstitutionListItem = {
   id: string | number
@@ -12,6 +13,7 @@ type InstitutionListItem = {
   description?: string | null
   slug?: string | null
   isHead?: boolean | null
+  website?: string | null
 }
 
 // Список учреждений района. Головное — первым, дальше по алфавиту: районный ДК
@@ -44,20 +46,31 @@ export async function InstitutionsView() {
         <p className="muted">Разделы учреждений скоро появятся.</p>
       ) : (
         <ul className="post-list">
-          {institutions.map((institution) => (
-            <li key={institution.id} className="post-list__item">
-              <h2>
-                <Link href={`/dk/${encodeURIComponent(institution.slug ?? '')}`}>
-                  {institution.title || 'Без названия'}
-                </Link>
-              </h2>
-              <p className="post-list__meta">
-                {institution.settlement || ''}
-                {institution.isHead ? ' · головное учреждение' : ''}
-              </p>
-              {institution.description ? <p>{institution.description}</p> : null}
-            </li>
-          ))}
+          {institutions.map((institution) => {
+            // У кого есть личный домен — карточка ведёт на него, у остальных —
+            // на раздел портала. Внешняя ссылка — обычным <a>: роутер Next
+            // перехватывает только внутренние переходы.
+            const url = institutionUrl(institution)
+            const external = /^https?:\/\//i.test(url)
+            const domain = institutionDomainName(institution)
+            return (
+              <li key={institution.id} className="post-list__item">
+                <h2>
+                  {external ? (
+                    <a href={url}>{institution.title || 'Без названия'}</a>
+                  ) : (
+                    <Link href={url}>{institution.title || 'Без названия'}</Link>
+                  )}
+                </h2>
+                <p className="post-list__meta">
+                  {institution.settlement || ''}
+                  {institution.isHead ? ' · головное учреждение' : ''}
+                  {domain ? ` · ${domain}` : ''}
+                </p>
+                {institution.description ? <p>{institution.description}</p> : null}
+              </li>
+            )
+          })}
         </ul>
       )}
     </section>

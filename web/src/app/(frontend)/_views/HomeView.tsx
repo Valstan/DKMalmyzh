@@ -17,6 +17,16 @@ type Home = {
   contacts?: string | null
 }
 
+type MediaSize = { url?: string | null; width?: number | null; height?: number | null }
+
+type MediaDoc = {
+  url?: string | null
+  alt?: string | null
+  width?: number | null
+  height?: number | null
+  sizes?: { card?: MediaSize | null; thumbnail?: MediaSize | null } | null
+}
+
 type PostListItem = {
   id: string | number
   title?: string | null
@@ -26,6 +36,7 @@ type PostListItem = {
   category?: string | null
   type?: string | null
   institution?: unknown
+  cover?: MediaDoc | string | number | null
 }
 
 async function getHome(): Promise<Home | null> {
@@ -47,9 +58,11 @@ async function getLatestPosts(): Promise<PostListItem[]> {
         collection: 'posts',
         where: { _status: { equals: 'published' } },
         sort: '-date',
-        // depth: 1 — в общей ленте портала у каждой карточки бейдж своего ДК.
+        // depth: 1 — в общей ленте у каждой карточки бейдж своего ДК и обложка.
+        // Лимит 15: лента всех домов культуры вперемешку по дате; больше —
+        // тяжёлая главная. Остальное — в /news (там до сотни).
         depth: 1,
-        limit: 6,
+        limit: 15,
       })
       return res.docs as PostListItem[]
     })
@@ -199,20 +212,9 @@ export async function HomeView() {
             </div>
           </div>
         ) : (
-          <ul className="post-list">
-            {posts.map((post) => (
-              <li key={post.id} className="post-list__item">
-                <h3>
-                  <Link href={`/news/${encodeURIComponent(post.slug ?? '')}`}>
-                    {post.title || 'Без заголовка'}
-                  </Link>
-                </h3>
-                <p className="post-list__meta">
-                  {post.type === 'event' ? 'Афиша · ' : ''}
-                  {formatPostDate(post.date || post.publishedAt)}
-                  <PostInstitution institution={post.institution} />
-                </p>
-              </li>
+          <ul className="news-cards">
+            {posts.map((post, index) => (
+              <NewsCard key={post.id} post={post} priority={index < 2} />
             ))}
           </ul>
         )}
@@ -247,5 +249,52 @@ function PostInstitution({ institution }: { institution: unknown }) {
       {' · '}
       <Link href={institutionHref(ref)}>{institutionLabel(ref)}</Link>
     </>
+  )
+}
+
+// Карточка новости главной: превью + заголовок + мета. Загрузка картинок — по
+// современным правилам и без клиентского JS:
+//   - серверный рендер: лента видна сразу целиком, без спиннеров и догрузок;
+//   - уменьшенная копия `card` (768px), а не оригинал — в разы меньше байт;
+//   - `priority` только у первых двух (кандидаты в LCP), остальные — lazy;
+//   - явные width/height у каждой картинки — нет сдвига раскладки (CLS);
+//   - `sizes` — мобильным браузер сам возьмёт маленькую копию.
+// Без обложки — заглушка тем же размером: сетка не прыгает.
+function NewsCard({ post, priority }: { post: PostListItem; priority: boolean }) {
+  const cover = typeof post.cover === 'object' && post.cover ? post.cover : null
+  const size = cover?.sizes?.card ?? cover?.sizes?.thumbnail ?? null
+  const src = size?.url || cover?.url || null
+  const href = `/news/${encodeURIComponent(post.slug ?? '')}`
+  const title = post.title || 'Без заголовка'
+  return (
+    <li className="news-card">
+      {src ? (
+        <Link className="news-card__cover-link" href={href} aria-hidden="true" tabIndex={-1}>
+          <Image
+            className="news-card__cover"
+            src={src}
+            alt=""
+            width={size?.width || cover?.width || 768}
+            height={size?.height || cover?.height || 432}
+            sizes="(max-width: 640px) 100vw, 320px"
+            priority={priority}
+          />
+        </Link>
+      ) : (
+        <div className="news-card__cover news-card__cover--empty" aria-hidden="true">
+          🎭
+        </div>
+      )}
+      <div className="news-card__body">
+        <h3>
+          <Link href={href}>{title}</Link>
+        </h3>
+        <p className="post-list__meta">
+          {post.type === 'event' ? 'Афиша · ' : ''}
+          {formatPostDate(post.date || post.publishedAt)}
+          <PostInstitution institution={post.institution} />
+        </p>
+      </div>
+    </li>
   )
 }
