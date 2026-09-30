@@ -6,8 +6,10 @@ import { getPayload } from 'payload'
 import { SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { formatPostDate } from '../../../lib/format'
+import { FEED_PAGE_SIZE, getFeedPage } from '../../../lib/feed'
 import { FESTIVALS } from '../../../lib/festivals'
-import { PostCards, PostInstitutionBadge, type PostCardDoc } from '../components/PostCard'
+import { PostInstitutionBadge } from '../components/PostCard'
+import { PostFeed } from '../components/PostFeed'
 import { FestivalCards } from './FestivalsView'
 
 type Home = {
@@ -15,6 +17,15 @@ type Home = {
   subtitle?: string | null
   intro?: string | null
   contacts?: string | null
+}
+
+type EventRow = {
+  id: string | number
+  title?: string | null
+  slug?: string | null
+  date?: string | null
+  publishedAt?: string | null
+  institution?: unknown
 }
 
 async function getHome(): Promise<Home | null> {
@@ -28,30 +39,10 @@ async function getHome(): Promise<Home | null> {
   }
 }
 
-async function getLatestPosts(): Promise<PostCardDoc[]> {
-  try {
-    return await withRetry(async () => {
-      const payload = await getPayload({ config })
-      const res = await payload.find({
-        collection: 'posts',
-        where: { _status: { equals: 'published' } },
-        sort: '-date',
-        // depth: 1 — в общей ленте у каждой карточки бейдж своего ДК и обложка.
-        // Лимит 15: лента всех домов культуры вперемешку по дате; больше —
-        // тяжёлая главная. Остальное — в /news (там до сотни).
-        depth: 1,
-        limit: 15,
-      })
-      return res.docs as PostCardDoc[]
-    })
-  } catch {
-    return []
-  }
-}
-
 // Ближайшие афиши: только вперёд по времени и по возрастанию даты — прошедшее
-// мероприятие в блоке «не пропустите» хуже, чем пустой блок.
-async function getUpcomingEvents(): Promise<PostCardDoc[]> {
+// мероприятие в блоке «не пропустите» хуже, чем пустой блок. Это не лента: он
+// всегда короткий, догружать в нём нечего, поэтому выборка своя и маленькая.
+async function getUpcomingEvents(): Promise<EventRow[]> {
   try {
     return await withRetry(async () => {
       const payload = await getPayload({ config })
@@ -66,7 +57,7 @@ async function getUpcomingEvents(): Promise<PostCardDoc[]> {
         depth: 1,
         limit: 4,
       })
-      return res.docs as PostCardDoc[]
+      return res.docs as EventRow[]
     })
   } catch {
     return []
@@ -74,9 +65,12 @@ async function getUpcomingEvents(): Promise<PostCardDoc[]> {
 }
 
 export async function HomeView() {
-  const [home, posts, events] = await Promise.all([
+  // Общая лента: все дома культуры и общерайонные материалы вперемешку, по дате
+  // от новых к старым. Первая страница рендерится на сервере (20 штук), остальное
+  // догружается по мере прокрутки.
+  const [home, feed, events] = await Promise.all([
     getHome(),
-    getLatestPosts(),
+    getFeedPage({ limit: FEED_PAGE_SIZE }),
     getUpcomingEvents(),
   ])
 
@@ -181,7 +175,7 @@ export async function HomeView() {
           <p className="eyebrow">Со всего района</p>
           <h2>Новости домов культуры</h2>
         </div>
-        {posts.length === 0 ? (
+        {feed.docs.length === 0 ? (
           <div className="empty-news">
             <span aria-hidden="true">🎭</span>
             <div>
@@ -190,7 +184,12 @@ export async function HomeView() {
             </div>
           </div>
         ) : (
-          <PostCards posts={posts} />
+          <PostFeed
+            initial={feed.docs}
+            page={feed.page}
+            totalPages={feed.totalPages}
+            showCategory
+          />
         )}
         <p className="section-link">
           <Link href="/news">
@@ -213,4 +212,3 @@ export async function HomeView() {
     </>
   )
 }
-

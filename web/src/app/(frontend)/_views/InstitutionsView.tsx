@@ -3,7 +3,8 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 
 import { withRetry } from '../../../lib/withRetry'
-import { institutionDomainName, institutionUrl } from '../../../lib/institutions'
+import { institutionUrl } from '../../../lib/institutions'
+import { institutionDomainName } from '../../../lib/institutionsDomain'
 
 type InstitutionListItem = {
   id: string | number

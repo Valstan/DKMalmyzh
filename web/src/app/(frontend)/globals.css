@@ -625,6 +625,19 @@ p {
 .news-card__body a {
   color: var(--ink);
 }
+/* Хвост ленты: маяк догрузки + запасная кнопка. Наблюдатель сам подгружает
+   следующие 20, кнопка нужна без клиентского JS и когда запрос не удался. */
+.post-feed__more {
+  margin-top: 1.4rem;
+  text-align: center;
+}
+.post-feed__sentinel {
+  height: 1px;
+}
+.post-feed__more .muted {
+  margin: 0.6rem 0 0;
+}
+
 @media (max-width: 640px) {
   .news-card {
     grid-template-columns: 1fr;
