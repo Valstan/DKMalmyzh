@@ -789,9 +789,12 @@ jobs:
           code=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code}'                             --max-time 15 "https://$LEGACY/")
           echo "второе имя / → $code"
           [ "$code" = "301" ] || { echo "::error::корень второго имени не отдаёт 301: $code"; exit 1; }
-          hdr=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -D - --max-time 15 "https://$LEGACY/" | tr -d '\r')
+          # Имя поля заголовка заранее приводим к строчным: по HTTP/2 nginx отдаёт
+          # `location`, по HTTP/1.1 — `Location` (та же причина, что у [Cc]..-классов
+          # в проверке CSP выше).
+          hdr=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -D - --max-time 15 "https://$LEGACY/" | tr '[:upper:]' '[:lower:]' | tr -d '\r')
           case "$hdr" in
-            *"Location: https://$DOMAIN/dk/rckd"*) echo "301 ведёт на /dk/rckd основного домена" ;;
+            *"location: https://$DOMAIN/dk/rckd"*) echo "301 ведёт на /dk/rckd основного домена" ;;
             *) echo "::error::301 корня второго имени ведёт не на раздел"; exit 1 ;;
           esac
 
