@@ -2,7 +2,8 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 import type { Where } from 'payload'
 
-import { emptyFeedPage, feedWhere, toFeedCard, type FeedPage, type FeedType } from './feedShape'
+import { emptyFeedPage, feedWhere, mentionWhere, mentionedByStems, toFeedCard, type FeedPage, type FeedType } from './feedShape'
+import { isMentionFeed, mentionStems } from './institutions/mentionFeed'
 
 // Сбор страницы ленты: главная, `/news` и раздел дома культуры.
 //
@@ -35,7 +36,10 @@ export async function getFeedPage(query: FeedQuery = {}): Promise<FeedPage> {
     // Раздел черновика не отдаёт ленту: догружать «невидимое» нельзя, а слаг
     // неизвестного дома культуры — обычный запрос, не ошибка. И важно: это
     // ПУСТАЯ лента, а не общая. Иначе любой выдуманный слаг в адресе отдал бы
-    // посетителю все новости района вместо 404-подобного пустого раздела.
+    // посетителю все новости района вместо пустого раздела.
+    if (isMentionFeed(slug)) {
+      return getMentionFeedPage(payload, slug, query.type ?? null, page, limit)
+    }
     const found = await payload.find({
       collection: 'institutions',
       where: { slug: { equals: slug }, _status: { equals: 'published' } },
@@ -65,5 +69,42 @@ export async function getFeedPage(query: FeedQuery = {}): Promise<FeedPage> {
     totalPages,
     totalDocs: typeof res.totalDocs === 'number' ? res.totalDocs : res.docs.length,
     hasMore: page < totalPages,
+  }
+}
+
+// Лента раздела без своего сообщества: материалы, где упоминается населённый
+// пункт. SQL сужает выборку по заголовку (тело записи — jsonb, `LIKE` по нему не
+// идёт), затем заголовки проверяются по словам и список режется уже в коде.
+// Таких материалов единицы, поэтому постраничная выборка идёт здесь, а не в БД:
+// иначе страница могла бы прийти пустой при непустой ленте.
+async function getMentionFeedPage(
+  payload: Awaited<ReturnType<typeof getPayload>>,
+  slug: string,
+  type: FeedType | null,
+  page: number,
+  limit: number,
+): Promise<FeedPage> {
+  const stems = mentionStems(slug)
+  if (stems.length === 0) return emptyFeedPage(page)
+
+  const res = await payload.find({
+    collection: 'posts',
+    where: mentionWhere(stems, type) as Where,
+    sort: '-date',
+    depth: 1,
+    // Страховка от «лента разрослась»: такой раздел по определению единичный.
+    limit: 500,
+  })
+
+  const docs = res.docs
+    .filter((doc) => mentionedByStems((doc as { title?: unknown }).title, stems))
+    .map(toFeedCard)
+  const start = (page - 1) * limit
+  return {
+    docs: docs.slice(start, start + limit),
+    page,
+    totalPages: Math.max(1, Math.ceil(docs.length / limit)),
+    totalDocs: docs.length,
+    hasMore: start + limit < docs.length,
   }
 }

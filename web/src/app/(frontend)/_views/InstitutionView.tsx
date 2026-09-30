@@ -8,6 +8,7 @@ import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { FEED_PAGE_SIZE, getFeedPage, type FeedPage } from '../../../lib/feed'
+import { isMentionFeed, MENTION_FEED_NOTE } from '../../../lib/institutions/mentionFeed'
 import { SectionTheme, themeOf } from '../components/SectionTheme'
 import { PostFeed } from '../components/PostFeed'
 
@@ -88,6 +89,10 @@ export async function InstitutionView({ slug }: { slug: string }) {
   const hasWebsite = /^https?:\/\//i.test(website)
 
   const sectionSlug = decodeURIComponent(slug)
+  // Раздел без своего сообщества (Нослы, Дерюшево, Малый Китяк): лента собрана
+  // по упоминанию села, поэтому у записей показывается бейдж ДОМА, который их
+  // выпустил, — в обычном разделе бейдж своего ДК был бы лишним.
+  const mentionFeed = isMentionFeed(sectionSlug)
   // Афиша и новости — две ленты одного дома культуры, каждая по-своему
   // пагинируется и догружается.
   const [events, news] = await Promise.all([
@@ -104,6 +109,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
       </p>
       <h1>{institution.title}</h1>
       {institution.description ? <p className="hero__subtitle">{institution.description}</p> : null}
+      {mentionFeed ? <p className="muted">{MENTION_FEED_NOTE}</p> : null}
 
       <RichText data={institution.content} />
 
@@ -137,7 +143,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
             totalPages={events.totalPages}
             institutionSlug={sectionSlug}
             type="event"
-            showInstitution={false}
+            showInstitution={mentionFeed}
             showType={false}
             emptyText="Афиши пока нет."
           />
@@ -152,8 +158,8 @@ export async function InstitutionView({ slug }: { slug: string }) {
           totalPages={news.totalPages}
           institutionSlug={sectionSlug}
           type="news"
-          showInstitution={false}
-          emptyText="Пока нет новостей."
+          showInstitution={mentionFeed}
+          emptyText={`Новостей про ${institution.settlement ?? 'наше место'} пока нет.`}
         />
       </section>
     </article>

@@ -2,6 +2,8 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 
 import { FEED_MAX_PAGE_SIZE, FEED_PAGE_SIZE, getFeedPage } from '../src/lib/feed'
+import { mentionedByStems } from '../src/lib/feedShape'
+import { mentionStems } from '../src/lib/institutions/mentionFeed'
 
 // Гейт ленты: постраничная выборка на живой БД после накатанной миграции.
 //
@@ -14,6 +16,10 @@ import { FEED_MAX_PAGE_SIZE, FEED_PAGE_SIZE, getFeedPage } from '../src/lib/feed
 // афиша в отдельном доме культуры. Уборка за собой обязательна — база гейта
 // общая с остальными шагами.
 
+// Раздел без своего сообщества из справочника: его лента собирается по
+// упоминанию села. Берём настоящий, а не выдуманный: механизм помечен в
+// справочнике, и выдуманный слаг проверял бы несуществующий флаг.
+const MENTION_SLUG = 'nosly'
 const SLUG = 'selftest-feed-house'
 
 const main = async () => {
@@ -29,7 +35,7 @@ const main = async () => {
       title: 'Самотестовый ДК (лента)',
       shortTitle: 'Самотест-лента',
       settlement: 'с. Самотестово',
-      slug: SLUG,
+      slug: 'selftest-feed-house',
       _status: 'published',
     },
   })
@@ -38,13 +44,18 @@ const main = async () => {
   // Даты по возрастанию: по дате создания порядок ленты должен быть обратным —
   // иначе проверяется порядок вставки, а не сортировка.
   const base = Date.parse('2026-01-01T00:00:00.000Z')
-  const mk = async (index: number, type: 'news' | 'event', dayOffset: number): Promise<number> => {
+  const mk = async (
+    index: number,
+    type: 'news' | 'event',
+    dayOffset: number,
+    title?: string,
+  ): Promise<number> => {
     const vkUid = `-999777888_${9000 + index}`
     const doc = await payload.create({
       collection: 'posts',
       context: ctx,
       data: {
-        title: `Самотест ленты №${index}`,
+        title: title ?? `Самотест ленты №${index}`,
         slug: `selftest-feed-${index}`,
         date: new Date(base + dayOffset * 86400000).toISOString(),
         type,
@@ -121,6 +132,25 @@ const main = async () => {
   const unknown = await getFeedPage({ institutionSlug: 'selftest-net-takogo-doma' })
   if (unknown.docs.length !== 0) problems.push(`неизвестный слаг вернул ${unknown.docs.length} чужих записей`)
 
+  // 7. Лента раздела без своего сообщества: заголовки по упоминанию села.
+  //    Записи выпущены другим домом (самотестовым) — в ленте Нослов они должны
+  //    появиться с его бейджем, а чужое место — не должно.
+  const stems = mentionStems(MENTION_SLUG)
+  if (stems.length === 0) problems.push(`у раздела ${MENTION_SLUG} не вывелись основы для поиска`)
+  await mk(200, 'news', 50, 'Праздник в селе Самотестово прошёл') // к Нослам отношения не имеет
+  await mk(201, 'news', 51, 'Питрау в Нослы: артисты поздравили односельчан')
+  await mk(202, 'news', 52, 'Концерт в селе Большие Нослы') // другое место — не ловится
+
+  const mention = await getFeedPage({ institutionSlug: MENTION_SLUG, type: 'news' })
+  const mentionTitles = mention.docs.map((doc) => doc.title ?? '')
+  const right = mentionTitles.filter((title) => title.includes('Питрау в Нослы')).length
+  const wrong = mentionTitles.filter((title) => title.includes('Большие Нослы') || title.includes('Самотестово'))
+  if (right !== 1) problems.push(`в ленте по упоминанию нужная запись встречается ${right} раз, ожидалась 1`)
+  if (wrong.length > 0) problems.push(`в ленте по упоминанию чужие места: ${wrong.join(', ')}`)
+  for (const doc of mention.docs) {
+    if (!mentionedByStems(doc.title, stems)) problems.push(`в ленте заголовок без упоминания: ${doc.title}`)
+  }
+
   for (const id of createdPostIds) {
     await payload.delete({ collection: 'posts', id, context: ctx })
   }
@@ -132,7 +162,7 @@ const main = async () => {
     process.exit(1)
   }
 
-  console.log('лента ок: по 20 страницами, порядок по дате, раздел отдаёт только свои, черновик не отдаётся')
+  console.log('лента ок: по 20 страницами, порядок по дате, раздел отдаёт только свои, черновик не отдаётся, лента по упоминанию работает')
   process.exit(0)
 }
 

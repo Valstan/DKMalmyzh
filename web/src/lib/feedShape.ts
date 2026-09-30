@@ -158,3 +158,26 @@ export function feedWhere(institutionId?: string | number | null, type?: FeedTyp
 export function emptyFeedPage(page = 1): FeedPage {
   return { docs: [], page, totalPages: page, totalDocs: 0, hasMore: false }
 }
+
+// Лента «по упоминанию»: заголовок материала должен содержать все основы
+// населённого пункта. SQL сужает выборку через `LIKE` по основам (тело записи
+// — jsonb, по нему `LIKE` не пойдёт), а эта проверка идёт вторым слоем уже по
+// заголовкам: «Малый Китяк» не должен попасть под «Большой Китяк» из-за одной
+// общей части «китяк».
+export function mentionWhere(stems: string[], type?: FeedType | null): FeedWhere {
+  const titleClauses = stems.map((stem) => ({ title: { like: `%${stem}%` } }))
+  const clauses: FeedWhere[] = [{ _status: { equals: 'published' } }, ...titleClauses]
+  if (type) clauses.push({ type: { equals: type } })
+  return { and: clauses }
+}
+
+// Совпадает ли текст с основами: каждое слово текста обязано начинаться хотя бы
+// на одну из основ. Ложные срабатывания отсеиваются, пропуски — нет.
+export function mentionedByStems(text: unknown, stems: string[]): boolean {
+  if (stems.length === 0) return false
+  const words = String(text ?? '')
+    .toLowerCase()
+    .match(/[а-яёa-z0-9]+/g)
+  if (!words) return false
+  return stems.every((stem) => words.some((word) => word.startsWith(stem)))
+}

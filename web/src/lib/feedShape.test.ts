@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { FEED_MAX_PAGE_SIZE, FEED_PAGE_SIZE, emptyFeedPage, feedWhere, mergeFeedDocs, parseFeedQuery, toFeedCard } from './feedShape'
+import {
+  FEED_MAX_PAGE_SIZE,
+  FEED_PAGE_SIZE,
+  emptyFeedPage,
+  feedWhere,
+  mentionWhere,
+  mentionedByStems,
+  mergeFeedDocs,
+  parseFeedQuery,
+  toFeedCard,
+} from './feedShape'
 import type { FeedCard } from './feedShape'
 
 type FeedCardLike = Pick<FeedCard, 'id'>
@@ -157,5 +167,48 @@ describe('toFeedCard', () => {  const doc = {
     expect(toFeedCard(null).cover).toBeNull()
     expect(toFeedCard(null).institution).toBeNull()
     expect(toFeedCard({ id: 2, title: 42 }).title).toBeNull()
+  })
+})
+
+describe('mentionWhere', () => {
+  it('каждая основа — отдельное условие по заголовку, все они обязательны', () => {
+    expect(mentionWhere(['мал', 'китя'])).toEqual({
+      and: [
+        { _status: { equals: 'published' } },
+        { title: { like: '%мал%' } },
+        { title: { like: '%китя%' } },
+      ],
+    })
+  })
+
+  it('вид записи добавляется третьим условием', () => {
+    expect(mentionWhere(['носл'], 'event')).toEqual({
+      and: [{ _status: { equals: 'published' } }, { title: { like: '%носл%' } }, { type: { equals: 'event' } }],
+    })
+  })
+})
+
+describe('mentionedByStems', () => {
+  it('слово с основой в начале считается упоминанием (русские падежи)', () => {
+    expect(mentionedByStems('Артисты ДК выступили в деревне Нослы', ['нос'])).toBe(true)
+    expect(mentionedByStems('«Девятая пятница» в Дерюшево', ['дерюш'])).toBe(true)
+    expect(mentionedByStems('Концерт к Дню пограничника д. Малого Китяка', ['мал', 'китя'])).toBe(true)
+  })
+
+  it('одна общая часть не считается упоминанием другого места', () => {
+    // Ключевая проверка: «Малый Китяк» и «Большой Китяк» делят слово «Китяк».
+    expect(mentionedByStems('Праздничный концерт в Большой Китяк', ['мал', 'китя'])).toBe(false)
+    expect(mentionedByStems('Концерт в д. Малый Китяк', ['мал', 'китя'])).toBe(true)
+  })
+
+  it('основа должна быть началом слова, а не хвостом', () => {
+    expect(mentionedByStems('Праздник в Калинино', ['носл'])).toBe(false)
+    expect(mentionedByStems('Концерт без названия места', ['дерюш'])).toBe(false)
+  })
+
+  it('пустые основы или текст — не совпадение (иначе раздел показал бы всё подряд)', () => {
+    expect(mentionedByStems('любой заголовок', [])).toBe(false)
+    expect(mentionedByStems('', ['носл'])).toBe(false)
+    expect(mentionedByStems(null, ['носл'])).toBe(false)
   })
 })
