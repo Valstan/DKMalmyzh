@@ -7,8 +7,8 @@ import { notFound } from 'next/navigation'
 import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
-import { formatPostDate } from '../../../lib/format'
 import { SectionTheme, themeOf } from '../components/SectionTheme'
+import { PostCards, type PostCardDoc } from '../components/PostCard'
 
 type InstitutionDoc = {
   id: string | number
@@ -22,15 +22,6 @@ type InstitutionDoc = {
   phone?: string | null
   website?: string | null
   vkSources?: { id?: string | null; url?: string | null }[] | null
-}
-
-type PostListItem = {
-  id: string | number
-  title?: string | null
-  slug?: string | null
-  date?: string | null
-  publishedAt?: string | null
-  type?: string | null
 }
 
 async function getInstitution(slug: string): Promise<InstitutionDoc | null> {
@@ -48,7 +39,12 @@ async function getInstitution(slug: string): Promise<InstitutionDoc | null> {
 
 // Лента учреждения. Мягкая деградация к []: сбой выборки материалов не должен
 // прятать саму карточку дома культуры — адрес и телефон нужнее ленты.
-async function getPosts(institutionId: string | number): Promise<PostListItem[]> {
+//
+// depth: 1 — карточкам нужна обложка объектом с `sizes`; при `depth: 0` приходит
+// только идентификатором, и превью рисовать нечего. Бейдж своего ДК внутри его
+// раздела не показываем, а вот `institution` при depth: 1 достаётся вместе с
+// обложкой — лишний вес одной выборки, зато без второй схемы данных.
+async function getPosts(institutionId: string | number): Promise<PostCardDoc[]> {
   try {
     return await withRetry(async () => {
       const payload = await getPayload({ config })
@@ -56,10 +52,10 @@ async function getPosts(institutionId: string | number): Promise<PostListItem[]>
         collection: 'posts',
         where: { institution: { equals: institutionId }, _status: { equals: 'published' } },
         sort: '-date',
-        depth: 0,
+        depth: 1,
         limit: 50,
       })
-      return res.docs as PostListItem[]
+      return res.docs as PostCardDoc[]
     })
   } catch {
     return []
@@ -137,7 +133,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
         <section className="institution-block">
           <p className="eyebrow">Не пропустите</p>
           <h2>Афиша</h2>
-          <PostList posts={events} />
+          <PostCards posts={events} showInstitution={false} showType={false} />
         </section>
       ) : null}
 
@@ -146,27 +142,10 @@ export async function InstitutionView({ slug }: { slug: string }) {
         {news.length === 0 ? (
           <p className="muted">Пока нет новостей.</p>
         ) : (
-          <PostList posts={news} />
+          <PostCards posts={news} showInstitution={false} />
         )}
       </section>
     </article>
     </SectionTheme>
-  )
-}
-
-function PostList({ posts }: { posts: PostListItem[] }) {
-  return (
-    <ul className="post-list">
-      {posts.map((post) => (
-        <li key={post.id} className="post-list__item">
-          <h3>
-            <Link href={`/news/${encodeURIComponent(post.slug ?? '')}`}>
-              {post.title || 'Без заголовка'}
-            </Link>
-          </h3>
-          <p className="post-list__meta">{formatPostDate(post.date || post.publishedAt)}</p>
-        </li>
-      ))}
-    </ul>
   )
 }
