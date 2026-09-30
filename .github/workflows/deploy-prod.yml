@@ -632,10 +632,11 @@ jobs:
           echo "POST /api/ingest/posts без ключа → $code (ожидалось 401)"
           [ "$code" = "401" ] || { echo "::error::приёмник не отвечает 401 без ключа: $code"; exit 1; }
 
-      # Юниты импорта из ВК. Ставятся каждым деплоем идемпотентно: файл меняется —
-      # daemon-reload и рестарт таймера, не меняется — не трогаем. Таймер включаем
-      # только когда в env-файле есть ключ шлюза SARAFAN и секрет запуска: без них
-      # каждый прогон писал бы в журнал отказ и выглядел как поломка.
+      # Юниты импорта из ВК. Файлы кладутся каждым деплоем идемпотентно, но ТАЙМЕР
+      # ОСТАНОВЛЕН (решение владельца 30.09): поставщиком новостей стал конвейер
+      # Сарафана через приёмник, а свой мотор поверх давал бы дубли и занимал
+      # единственный vCPU по 20 минут каждые полчаса. Ручной прогон через
+      # internal-run.yml остаётся доступен. Возврат — одной правкой ниже.
       - name: Установить таймер импорта из ВК
         run: |
           set -e
@@ -658,19 +659,8 @@ jobs:
           rm -f /tmp/dkmalmyzh-vk-sync-run.sh
           [ "$changed" = "1" ] && sudo systemctl daemon-reload || true
 
-          # Значения читаем, но НЕ печатаем: журнал прогона публичный.
-          have_token=0; have_secret=0
-          # `|| true` обязателен: под `set -e` неудачный grep (переменной нет —
-          # штатный случай) уронил бы весь шаг деплоя.
-          sudo grep -q '^SARAFAN_GATEWAY_KEY=.' /etc/dkmalmyzh/dkmalmyzh.env && have_token=1 || true
-          sudo grep -q '^INTERNAL_OPS_SECRET=.' /etc/dkmalmyzh/dkmalmyzh.env && have_secret=1 || true
-          if [ "$have_token" = "1" ] && [ "$have_secret" = "1" ]; then
-            sudo systemctl enable --now dkmalmyzh-vk-sync.timer
-            echo "таймер импорта из ВК включён: $(systemctl is-active dkmalmyzh-vk-sync.timer)"
-          else
-            sudo systemctl disable --now dkmalmyzh-vk-sync.timer 2>/dev/null || true
-            echo "SARAFAN_GATEWAY_KEY и/или INTERNAL_OPS_SECRET не заданы — таймер импорта выключен"
-          fi
+          sudo systemctl disable --now dkmalmyzh-vk-sync.timer 2>/dev/null || true
+          echo "таймер импорта из ВК остановлен (пауза по решению владельца 30.09, поставщик — конвейер Сарафана)"
           REMOTE
 
       - name: Smoke check — local routes (/, /news, /admin)
