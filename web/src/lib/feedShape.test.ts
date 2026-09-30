@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { FEED_MAX_PAGE_SIZE, FEED_PAGE_SIZE, feedWhere, mergeFeedDocs, parseFeedQuery, toFeedCard } from './feedShape'
+import { FEED_MAX_PAGE_SIZE, FEED_PAGE_SIZE, emptyFeedPage, feedWhere, mergeFeedDocs, parseFeedQuery, toFeedCard } from './feedShape'
 import type { FeedCard } from './feedShape'
 
 type FeedCardLike = Pick<FeedCard, 'id'>
@@ -56,10 +56,21 @@ describe('feedWhere', () => {
     })
   })
 
-  it('неизвестный дом (null) не превращается в «без дома» — выборка пустая', () => {
-    // null приходит, когда слага нет в каталоге опубликованных: условие по
-    // `institution` не ставится, и общая лента не подменяется разделом.
+  it('неизвестный дом (null) не превращается в «без дома» — фильтр просто не ставится', () => {
+    // Само по себе условие «без фильтра» — это общая лента. Именно поэтому
+    // `feed.ts` на несуществующий слаг отдаёт пустую страницу, а не зовёт
+    // `feedWhere(null)`: иначе раздел отдавал бы чужие записи.
     expect(feedWhere(null, null)).toEqual({ _status: { equals: 'published' } })
+  })
+})
+
+describe('emptyFeedPage', () => {
+  it('пусто и без «ещё что-то» — догруживать нечего', () => {
+    expect(emptyFeedPage()).toEqual({ docs: [], page: 1, totalPages: 1, totalDocs: 0, hasMore: false })
+  })
+
+  it('номер страницы сохраняется, чтобы клиент не сбился', () => {
+    expect(emptyFeedPage(4).page).toBe(4)
   })
 })
 

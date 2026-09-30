@@ -139,6 +139,10 @@ export function mergeFeedDocs(prev: FeedCard[], incoming: FeedCard[]): FeedCard[
 // Условие выборки ленты. Ветки склеиваются в `and`: верхний уровень занимает
 // `_status`, а дом культуры и вид записи ставятся отдельными — иначе пришлось бы
 // переписывать чужое условие.
+//
+// `institutionId` обязан быть числом: `null` означал бы «фильтр не задан», и
+// лента молча стала бы общей. Сборщик (`feed.ts`) на такой случай отдаёт пустую
+// страницу сам, сюда такое не доходит.
 export function feedWhere(institutionId?: string | number | null, type?: FeedType | null): FeedWhere {
   const clauses: FeedWhere[] = [{ _status: { equals: 'published' } }]
   if (institutionId !== undefined && institutionId !== null) {
@@ -146,4 +150,11 @@ export function feedWhere(institutionId?: string | number | null, type?: FeedTyp
   }
   if (type) clauses.push({ type: { equals: type } })
   return clauses.length === 1 ? clauses[0] : { and: clauses }
+}
+
+// Пустая страница. Отдельная функция, потому что ею пользуются два разных
+// отказа: неизвестный слаг дома культуры (нет такого раздела) и пустой раздел.
+// Оба обязаны выглядеть одинаково, и оба не имеют права отдавать чужую ленту.
+export function emptyFeedPage(page = 1): FeedPage {
+  return { docs: [], page, totalPages: page, totalDocs: 0, hasMore: false }
 }

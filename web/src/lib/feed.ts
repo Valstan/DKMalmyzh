@@ -2,7 +2,7 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 import type { Where } from 'payload'
 
-import { feedWhere, toFeedCard, type FeedPage, type FeedType } from './feedShape'
+import { emptyFeedPage, feedWhere, toFeedCard, type FeedPage, type FeedType } from './feedShape'
 
 // Сбор страницы ленты: главная, `/news` и раздел дома культуры.
 //
@@ -29,18 +29,22 @@ export async function getFeedPage(query: FeedQuery = {}): Promise<FeedPage> {
   const limit = Math.min(Math.max(query.limit ?? 20, 1), 50)
 
   const payload = await getPayload({ config })
-  let institutionId: string | number | null | undefined
+  let institutionId: string | number | undefined
   const slug = query.institutionSlug?.trim()
   if (slug) {
     // Раздел черновика не отдаёт ленту: догружать «невидимое» нельзя, а слаг
-    // неизвестного дома культуры — обычный запрос, не ошибка.
+    // неизвестного дома культуры — обычный запрос, не ошибка. И важно: это
+    // ПУСТАЯ лента, а не общая. Иначе любой выдуманный слаг в адресе отдал бы
+    // посетителю все новости района вместо 404-подобного пустого раздела.
     const found = await payload.find({
       collection: 'institutions',
       where: { slug: { equals: slug }, _status: { equals: 'published' } },
       depth: 0,
       limit: 1,
     })
-    institutionId = (found.docs[0]?.id as string | number | undefined) ?? null
+    const id = found.docs[0]?.id as string | number | undefined
+    if (id === undefined || id === null) return emptyFeedPage(page)
+    institutionId = id
   }
 
   const res = await payload.find({
