@@ -615,6 +615,9 @@ p {
   font-size: 2.5rem;
   background: var(--sun);
 }
+/* Заголовок карточки: уровень задаёт список (h3 в блоке с h2, h2 под h1 на
+   /news) — стили должны быть одинаковыми, иначе ленты разъедутся видом. */
+.news-card__body h2,
 .news-card__body h3 {
   margin: 0;
   font-size: 1.1rem;
