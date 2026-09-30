@@ -102,6 +102,11 @@ test.describe('публичные страницы открываются в б�
       await expect(page.locator('h1')).toHaveText(CI_INSTITUTION_TITLE_UPDATED)
       // Сид кладёт афишу этого ДК — она обязана быть видна именно в его разделе.
       await expect(page.getByRole('link', { name: CI_POST_TITLE_UPDATED })).toBeVisible()
+      // Лента раздела — карточками с местом под превью (заказ владельца 30.09),
+      // а не голыми заголовками. Проверяем наличие карточки: у сидовых материалов
+      // обложки нет, и проверять надо саму разметку, а не конкретную картинку.
+      await expect(page.locator('.news-card').first()).toBeVisible()
+      await expect(page.locator('.news-card__cover').first()).toBeVisible()
     })
   })
 

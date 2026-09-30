@@ -6,8 +6,8 @@ import { getPayload } from 'payload'
 import { SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { formatPostDate } from '../../../lib/format'
-import { institutionBadge, institutionHref, institutionLabel } from '../../../lib/institutions'
 import { FESTIVALS } from '../../../lib/festivals'
+import { PostCards, PostInstitutionBadge, type PostCardDoc } from '../components/PostCard'
 import { FestivalCards } from './FestivalsView'
 
 type Home = {
@@ -15,28 +15,6 @@ type Home = {
   subtitle?: string | null
   intro?: string | null
   contacts?: string | null
-}
-
-type MediaSize = { url?: string | null; width?: number | null; height?: number | null }
-
-type MediaDoc = {
-  url?: string | null
-  alt?: string | null
-  width?: number | null
-  height?: number | null
-  sizes?: { card?: MediaSize | null; thumbnail?: MediaSize | null } | null
-}
-
-type PostListItem = {
-  id: string | number
-  title?: string | null
-  slug?: string | null
-  date?: string | null
-  publishedAt?: string | null
-  category?: string | null
-  type?: string | null
-  institution?: unknown
-  cover?: MediaDoc | string | number | null
 }
 
 async function getHome(): Promise<Home | null> {
@@ -50,7 +28,7 @@ async function getHome(): Promise<Home | null> {
   }
 }
 
-async function getLatestPosts(): Promise<PostListItem[]> {
+async function getLatestPosts(): Promise<PostCardDoc[]> {
   try {
     return await withRetry(async () => {
       const payload = await getPayload({ config })
@@ -64,7 +42,7 @@ async function getLatestPosts(): Promise<PostListItem[]> {
         depth: 1,
         limit: 15,
       })
-      return res.docs as PostListItem[]
+      return res.docs as PostCardDoc[]
     })
   } catch {
     return []
@@ -73,7 +51,7 @@ async function getLatestPosts(): Promise<PostListItem[]> {
 
 // Ближайшие афиши: только вперёд по времени и по возрастанию даты — прошедшее
 // мероприятие в блоке «не пропустите» хуже, чем пустой блок.
-async function getUpcomingEvents(): Promise<PostListItem[]> {
+async function getUpcomingEvents(): Promise<PostCardDoc[]> {
   try {
     return await withRetry(async () => {
       const payload = await getPayload({ config })
@@ -88,7 +66,7 @@ async function getUpcomingEvents(): Promise<PostListItem[]> {
         depth: 1,
         limit: 4,
       })
-      return res.docs as PostListItem[]
+      return res.docs as PostCardDoc[]
     })
   } catch {
     return []
@@ -190,7 +168,7 @@ export async function HomeView() {
                 </h3>
                 <p className="post-list__meta">
                   {formatPostDate(event.date || event.publishedAt)}
-                  <PostInstitution institution={event.institution} />
+                  <PostInstitutionBadge institution={event.institution} />
                 </p>
               </li>
             ))}
@@ -212,11 +190,7 @@ export async function HomeView() {
             </div>
           </div>
         ) : (
-          <ul className="news-cards">
-            {posts.map((post, index) => (
-              <NewsCard key={post.id} post={post} priority={index < 2} />
-            ))}
-          </ul>
+          <PostCards posts={posts} />
         )}
         <p className="section-link">
           <Link href="/news">
@@ -240,61 +214,3 @@ export async function HomeView() {
   )
 }
 
-// Бейдж учреждения. Материал без привязки — общерайонный, бейджа не получает.
-function PostInstitution({ institution }: { institution: unknown }) {
-  const ref = institutionBadge(institution)
-  if (!ref) return null
-  return (
-    <>
-      {' · '}
-      <Link href={institutionHref(ref)}>{institutionLabel(ref)}</Link>
-    </>
-  )
-}
-
-// Карточка новости главной: превью + заголовок + мета. Загрузка картинок — по
-// современным правилам и без клиентского JS:
-//   - серверный рендер: лента видна сразу целиком, без спиннеров и догрузок;
-//   - уменьшенная копия `card` (768px), а не оригинал — в разы меньше байт;
-//   - `priority` только у первых двух (кандидаты в LCP), остальные — lazy;
-//   - явные width/height у каждой картинки — нет сдвига раскладки (CLS);
-//   - `sizes` — мобильным браузер сам возьмёт маленькую копию.
-// Без обложки — заглушка тем же размером: сетка не прыгает.
-function NewsCard({ post, priority }: { post: PostListItem; priority: boolean }) {
-  const cover = typeof post.cover === 'object' && post.cover ? post.cover : null
-  const size = cover?.sizes?.card ?? cover?.sizes?.thumbnail ?? null
-  const src = size?.url || cover?.url || null
-  const href = `/news/${encodeURIComponent(post.slug ?? '')}`
-  const title = post.title || 'Без заголовка'
-  return (
-    <li className="news-card">
-      {src ? (
-        <Link className="news-card__cover-link" href={href} aria-hidden="true" tabIndex={-1}>
-          <Image
-            className="news-card__cover"
-            src={src}
-            alt=""
-            width={size?.width || cover?.width || 768}
-            height={size?.height || cover?.height || 432}
-            sizes="(max-width: 640px) 100vw, 320px"
-            priority={priority}
-          />
-        </Link>
-      ) : (
-        <div className="news-card__cover news-card__cover--empty" aria-hidden="true">
-          🎭
-        </div>
-      )}
-      <div className="news-card__body">
-        <h3>
-          <Link href={href}>{title}</Link>
-        </h3>
-        <p className="post-list__meta">
-          {post.type === 'event' ? 'Афиша · ' : ''}
-          {formatPostDate(post.date || post.publishedAt)}
-          <PostInstitution institution={post.institution} />
-        </p>
-      </div>
-    </li>
-  )
-}
