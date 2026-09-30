@@ -1,4 +1,4 @@
-import { FEED_PAGE_SIZE, getFeedPage } from '../../../lib/feed'
+import { FEED_PAGE_SIZE, getFeedPageSafe } from '../../../lib/feed'
 import { PostFeed } from '../components/PostFeed'
 
 // Общая лента «Афиша и новости» — карточками с превью, по дате от новых к
@@ -7,7 +7,7 @@ import { PostFeed } from '../components/PostFeed'
 // Материалы всех домов культуры и общерайонные — вперемешку, одной лентой: на
 // портале это «всё сразу», разбирать по домам — работа адресата `/dk`.
 export async function NewsView() {
-  const feed = await getFeedPage({ limit: FEED_PAGE_SIZE })
+  const feed = await getFeedPageSafe({ limit: FEED_PAGE_SIZE })
 
   return (
     <section>

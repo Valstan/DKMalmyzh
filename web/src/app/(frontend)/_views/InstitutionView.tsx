@@ -7,7 +7,8 @@ import { notFound } from 'next/navigation'
 import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
-import { FEED_PAGE_SIZE, getFeedPage, type FeedPage } from '../../../lib/feed'
+import { FEED_PAGE_SIZE, getFeedPageSafe, type FeedPage } from '../../../lib/feed'
+import { isMentionFeed, MENTION_FEED_NOTE } from '../../../lib/institutions/mentionFeed'
 import { SectionTheme, themeOf } from '../components/SectionTheme'
 import { PostFeed } from '../components/PostFeed'
 
@@ -39,21 +40,17 @@ async function getInstitution(slug: string): Promise<InstitutionDoc | null> {
 }
 
 // Лента учреждения — ТОЛЬКО его материалы (заказ владельца 30.09), по дате от
-// новых к старым, по 20 с догрузкой по скроллу. Афиша и новости — две
+// новых к старым, по 20 с догружкой по скроллу. Афиша и новости — две
 // независимые ленты по виду записи, а не одна выборка с разделением в коде:
 // догруживать по скроллу пришлось бы по каждой, и пагинация разъезжалась бы
 // между блоками.
 //
-// Мягкая деградация к пустой ленте: сбой выборки материалов не должен прятать
-// саму карточку дома культуры — адрес и телефон нужнее ленты.
+// Сбой выборки не должен прятать саму карточку дома культуры — адрес и телефон
+// нужнее ленты, поэтому мягкая деградация (логируется в журнал, ISR чинит сама).
 async function getFeed(slug: string, type?: 'news' | 'event'): Promise<FeedPage> {
-  try {
-    return await withRetry(async () =>
-      getFeedPage({ limit: FEED_PAGE_SIZE, institutionSlug: slug, type: type ?? null }),
-    )
-  } catch {
-    return { docs: [], page: 1, totalPages: 1, totalDocs: 0, hasMore: false }
-  }
+  return withRetry(() =>
+    getFeedPageSafe({ limit: FEED_PAGE_SIZE, institutionSlug: slug, type: type ?? null }),
+  )
 }
 
 export async function institutionMeta(slug: string): Promise<Metadata> {
@@ -88,6 +85,10 @@ export async function InstitutionView({ slug }: { slug: string }) {
   const hasWebsite = /^https?:\/\//i.test(website)
 
   const sectionSlug = decodeURIComponent(slug)
+  // Раздел без своего сообщества (Нослы, Дерюшево, Малый Китяк): лента собрана
+  // по упоминанию села, поэтому у записей показывается бейдж ДОМА, который их
+  // выпустил, — в обычном разделе бейдж своего ДК был бы лишним.
+  const mentionFeed = isMentionFeed(sectionSlug)
   // Афиша и новости — две ленты одного дома культуры, каждая по-своему
   // пагинируется и догружается.
   const [events, news] = await Promise.all([
@@ -104,6 +105,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
       </p>
       <h1>{institution.title}</h1>
       {institution.description ? <p className="hero__subtitle">{institution.description}</p> : null}
+      {mentionFeed ? <p className="muted">{MENTION_FEED_NOTE}</p> : null}
 
       <RichText data={institution.content} />
 
@@ -137,7 +139,7 @@ export async function InstitutionView({ slug }: { slug: string }) {
             totalPages={events.totalPages}
             institutionSlug={sectionSlug}
             type="event"
-            showInstitution={false}
+            showInstitution={mentionFeed}
             showType={false}
             emptyText="Афиши пока нет."
           />
@@ -152,8 +154,8 @@ export async function InstitutionView({ slug }: { slug: string }) {
           totalPages={news.totalPages}
           institutionSlug={sectionSlug}
           type="news"
-          showInstitution={false}
-          emptyText="Пока нет новостей."
+          showInstitution={mentionFeed}
+          emptyText={`Новостей про ${institution.settlement ?? 'наше место'} пока нет.`}
         />
       </section>
     </article>
