@@ -139,18 +139,27 @@ const main = async () => {
   //    появиться с его бейджем, а чужое место — не должно.
   const stems = mentionStems(MENTION_SLUG)
   if (stems.length === 0) problems.push(`у раздела ${MENTION_SLUG} не вывелись основы для поиска`)
-  await mk(200, 'news', 50, 'Праздник в селе Самотестово прошёл') // к Нослам отношения не имеет
+  await mk(200, 'news', 50, 'Праздник в селе Самотестово прошёл') // другое место — не ловится
   await mk(201, 'news', 51, 'Питрау в Нослы: артисты поздравили односельчан')
-  await mk(202, 'news', 52, 'Концерт в селе Большие Нослы') // другое место — не ловится
+  await mk(202, 'event', 52, 'Праздничный вечер в Нослы') // афиша — в ленту новостей не идёт
 
   const mention = await getFeedPage({ institutionSlug: MENTION_SLUG, type: 'news' })
   const mentionTitles = mention.docs.map((doc) => doc.title ?? '')
   const right = mentionTitles.filter((title) => title.includes('Питрау в Нослы')).length
-  const wrong = mentionTitles.filter((title) => title.includes('Большие Нослы') || title.includes('Самотестово'))
+  const wrong = mentionTitles.filter(
+    (title) => title.includes('Самотестово') || title.includes('Праздничный вечер'),
+  )
   if (right !== 1) problems.push(`в ленте по упоминанию нужная запись встречается ${right} раз, ожидалась 1`)
-  if (wrong.length > 0) problems.push(`в ленте по упоминанию чужие места: ${wrong.join(', ')}`)
+  if (wrong.length > 0) problems.push(`в ленте по упоминанию лишнее: ${wrong.join(', ')}`)
   for (const doc of mention.docs) {
     if (!mentionedByStems(doc.title, stems)) problems.push(`в ленте заголовок без упоминания: ${doc.title}`)
+  }
+
+  // Тот же материал в афише раздела — и в общей ленте не появляется.
+  const mentionEvents = await getFeedPage({ institutionSlug: MENTION_SLUG, type: 'event' })
+  const eventTitles = mentionEvents.docs.map((doc) => doc.title ?? '')
+  if (!eventTitles.includes('Праздничный вечер в Нослы')) {
+    problems.push('афиша с упоминанием села не попала в ленту афиши раздела')
   }
 
   for (const id of createdPostIds) {
