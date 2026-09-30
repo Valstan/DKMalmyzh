@@ -1,7 +1,9 @@
-// Общие типы и хелперы по домам культуры. Лежат отдельно от views, потому что
+// Общие типы и хелперы по домам культуры. Ложатся отдельно от views, потому что
 // нужны сразу трём местам: общей ленте, странице учреждения и главной.
-
-import { domainToUnicode } from 'node:url'
+//
+// Модуль держится БЕЗ `node:`-импортов: его использует клиентский компонент
+// ленты, а `node:url` в браузерный бандл не попадает. punycode-разбор домена
+// живёт отдельно — `institutionsDomain.ts`.
 
 export type InstitutionRef = {
   id: string | number
@@ -35,16 +37,4 @@ export function institutionUrl(ref: InstitutionRef): string {
   const website = (ref.website || '').trim()
   if (/^https?:\/\//i.test(website)) return website
   return institutionHref(ref)
-}
-
-// Человекочитаемое имя личного домена для подписи под ссылкой: punycode в
-// базе, кириллица на экране. Нет домена — пустая строка, подписи нет.
-export function institutionDomainName(ref: InstitutionRef): string {
-  const website = (ref.website || '').trim()
-  if (!/^https?:\/\//i.test(website)) return ''
-  try {
-    return domainToUnicode(new URL(website).hostname)
-  } catch {
-    return ''
-  }
 }

@@ -191,6 +191,44 @@ test.describe('публичные страницы открываются в б�
     expect(res?.status()).toBe(404)
   })
 
+  // Лента догружается по скроллу через `/api/feed` (заказ 30.09). Проверяем не
+  // «сколько карточек», а инварианты страницы: 20 максимум, порядок по дате от
+  // новых к старым, фильтр раздела и что черновик в ленте не всплывает.
+  // В базе гейта записей мало, поэтому второй страницы тут нет — пагинацию на
+  // живом числе проверяет `feed-selftest.ts`.
+  test('лента отдаёт по 20 записей, по дате, и раздел — только свои', async ({ request }) => {
+    const feed = await request.get('/api/feed')
+    expect(feed.status()).toBe(200)
+    const all = await feed.json()
+    expect(Array.isArray(all.docs)).toBe(true)
+    expect(all.docs.length).toBeLessThanOrEqual(20)
+
+    const dates = all.docs.map((doc: { date?: string }) => doc.date).filter(Boolean)
+    const sortedDesc = [...dates].sort((a: string, b: string) => (a < b ? 1 : -1))
+    expect(dates, 'лента не по дате или с пропуском даты').toEqual(sortedDesc)
+
+    const section = await request.get(`/api/feed?institution=${CI_INSTITUTION_SLUG}`)
+    expect(section.status()).toBe(200)
+    const sectionFeed = await section.json()
+    for (const doc of sectionFeed.docs) {
+      expect(doc.institution?.slug ?? CI_INSTITUTION_SLUG).toBe(CI_INSTITUTION_SLUG)
+    }
+
+    const leaked = [...all.docs, ...sectionFeed.docs].find((doc: { slug?: string }) => doc.slug === CI_DRAFT_POST_SLUG)
+    expect(leaked, 'черновик попал в ленту').toBeUndefined()
+  })
+
+  // Мусор в параметрах не должен ни ронять адрес, ни подменить выборку: страницу
+  // догрузки запрашивает браузер, а параметры могут прийти руками.
+  test('лента переживает мусор в параметрах', async ({ request }) => {
+    for (const query of ['page=abc', 'limit=99999', 'institution=НЕ-СЛАГ', 'type=мимо']) {
+      const res = await request.get(`/api/feed?${query}`)
+      expect(res.status(), `запрос ${query}`).toBe(200)
+      const body = await res.json()
+      expect(Array.isArray(body.docs)).toBe(true)
+    }
+  })
+
   test('черновиков нет в sitemap', async ({ request }) => {
     const res = await request.get('/sitemap.xml')
     expect(res.status()).toBe(200)

@@ -7,8 +7,9 @@ import { notFound } from 'next/navigation'
 import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
+import { FEED_PAGE_SIZE, getFeedPage, type FeedPage } from '../../../lib/feed'
 import { SectionTheme, themeOf } from '../components/SectionTheme'
-import { PostCards, type PostCardDoc } from '../components/PostCard'
+import { PostFeed } from '../components/PostFeed'
 
 type InstitutionDoc = {
   id: string | number
@@ -37,28 +38,21 @@ async function getInstitution(slug: string): Promise<InstitutionDoc | null> {
   })
 }
 
-// Лента учреждения. Мягкая деградация к []: сбой выборки материалов не должен
-// прятать саму карточку дома культуры — адрес и телефон нужнее ленты.
+// Лента учреждения — ТОЛЬКО его материалы (заказ владельца 30.09), по дате от
+// новых к старым, по 20 с догрузкой по скроллу. Афиша и новости — две
+// независимые ленты по виду записи, а не одна выборка с разделением в коде:
+// догруживать по скроллу пришлось бы по каждой, и пагинация разъезжалась бы
+// между блоками.
 //
-// depth: 1 — карточкам нужна обложка объектом с `sizes`; при `depth: 0` приходит
-// только идентификатором, и превью рисовать нечего. Бейдж своего ДК внутри его
-// раздела не показываем, а вот `institution` при depth: 1 достаётся вместе с
-// обложкой — лишний вес одной выборки, зато без второй схемы данных.
-async function getPosts(institutionId: string | number): Promise<PostCardDoc[]> {
+// Мягкая деградация к пустой ленте: сбой выборки материалов не должен прятать
+// саму карточку дома культуры — адрес и телефон нужнее ленты.
+async function getFeed(slug: string, type?: 'news' | 'event'): Promise<FeedPage> {
   try {
-    return await withRetry(async () => {
-      const payload = await getPayload({ config })
-      const res = await payload.find({
-        collection: 'posts',
-        where: { institution: { equals: institutionId }, _status: { equals: 'published' } },
-        sort: '-date',
-        depth: 1,
-        limit: 50,
-      })
-      return res.docs as PostCardDoc[]
-    })
+    return await withRetry(async () =>
+      getFeedPage({ limit: FEED_PAGE_SIZE, institutionSlug: slug, type: type ?? null }),
+    )
   } catch {
-    return []
+    return { docs: [], page: 1, totalPages: 1, totalDocs: 0, hasMore: false }
   }
 }
 
@@ -93,9 +87,13 @@ export async function InstitutionView({ slug }: { slug: string }) {
   const website = (institution.website || '').trim()
   const hasWebsite = /^https?:\/\//i.test(website)
 
-  const posts = await getPosts(institution.id)
-  const events = posts.filter((post) => post.type === 'event')
-  const news = posts.filter((post) => post.type !== 'event')
+  const sectionSlug = decodeURIComponent(slug)
+  // Афиша и новости — две ленты одного дома культуры, каждая по-своему
+  // пагинируется и догружается.
+  const [events, news] = await Promise.all([
+    getFeed(sectionSlug, 'event'),
+    getFeed(sectionSlug, 'news'),
+  ])
 
   return (
     <SectionTheme theme={themeOf(institution)}>
@@ -129,21 +127,34 @@ export async function InstitutionView({ slug }: { slug: string }) {
         </section>
       ) : null}
 
-      {events.length > 0 ? (
+      {events.docs.length > 0 ? (
         <section className="institution-block">
           <p className="eyebrow">Не пропустите</p>
           <h2>Афиша</h2>
-          <PostCards posts={events} showInstitution={false} showType={false} />
+          <PostFeed
+            initial={events.docs}
+            page={events.page}
+            totalPages={events.totalPages}
+            institutionSlug={sectionSlug}
+            type="event"
+            showInstitution={false}
+            showType={false}
+            emptyText="Афиши пока нет."
+          />
         </section>
       ) : null}
 
       <section className="institution-block">
         <h2>Новости</h2>
-        {news.length === 0 ? (
-          <p className="muted">Пока нет новостей.</p>
-        ) : (
-          <PostCards posts={news} showInstitution={false} />
-        )}
+        <PostFeed
+          initial={news.docs}
+          page={news.page}
+          totalPages={news.totalPages}
+          institutionSlug={sectionSlug}
+          type="news"
+          showInstitution={false}
+          emptyText="Пока нет новостей."
+        />
       </section>
     </article>
     </SectionTheme>

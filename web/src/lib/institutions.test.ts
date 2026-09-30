@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { institutionDomainName, institutionHref, institutionUrl } from './institutions'
+import { institutionHref, institutionUrl } from './institutions'
+import { institutionDomainName } from './institutionsDomain'
 
 // Личные домены учреждений: у кого свой адрес — ссылки ведут на него.
 describe('institutionUrl', () => {
