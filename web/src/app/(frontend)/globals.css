@@ -576,6 +576,61 @@ p {
   border-radius: 28px 70px;
   box-shadow: 9px 10px 0 var(--sun);
 }
+
+/* Лента главной: карточка с превью. Сетка 200px + текст, на узких — в столбик.
+   Размеры превью фиксированы классом, а не картинкой: пока грузится — место
+   зарезервировано, раскладка не прыгает (CLS). */
+.news-cards {
+  display: grid;
+  gap: 1.1rem;
+  padding: 0;
+  list-style: none;
+}
+.news-card {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 1rem;
+  align-items: start;
+  padding: 1rem;
+  color: var(--ink);
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 18px 38px 16px 34px;
+  box-shadow: 5px 5px 0 var(--aqua);
+}
+.news-card__cover-link {
+  display: block;
+  line-height: 0;
+}
+.news-card__cover {
+  width: 200px;
+  height: 132px;
+  object-fit: cover;
+  border: 3px solid var(--ink);
+  border-radius: 14px 26px 12px 24px;
+}
+.news-card__cover--empty {
+  display: grid;
+  place-items: center;
+  font-size: 2.5rem;
+  background: var(--sun);
+}
+.news-card__body h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+.news-card__body a {
+  color: var(--ink);
+}
+@media (max-width: 640px) {
+  .news-card {
+    grid-template-columns: 1fr;
+  }
+  .news-card__cover {
+    width: 100%;
+    height: 180px;
+  }
+}
 .site-main > section:not(.hero):not(.ornate-frame):not(.paint-frame),
 .site-main > article {
   padding: clamp(1.3rem, 4vw, 3rem);

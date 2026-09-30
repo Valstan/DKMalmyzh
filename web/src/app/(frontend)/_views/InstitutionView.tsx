@@ -20,6 +20,7 @@ type InstitutionDoc = {
   content?: unknown
   address?: string | null
   phone?: string | null
+  website?: string | null
   vkSources?: { id?: string | null; url?: string | null }[] | null
 }
 
@@ -92,6 +93,10 @@ export async function InstitutionView({ slug }: { slug: string }) {
     .map((source) => source?.url)
     .filter((url): url is string => Boolean(url))
 
+  // Личный домен учреждения (у РЦКД — алиас портала, у Калинино — 301 сюда).
+  const website = (institution.website || '').trim()
+  const hasWebsite = /^https?:\/\//i.test(website)
+
   const posts = await getPosts(institution.id)
   const events = posts.filter((post) => post.type === 'event')
   const news = posts.filter((post) => post.type !== 'event')
@@ -108,11 +113,16 @@ export async function InstitutionView({ slug }: { slug: string }) {
 
       <RichText data={institution.content} />
 
-      {institution.address || institution.phone || vkLinks.length > 0 ? (
+      {institution.address || institution.phone || hasWebsite || vkLinks.length > 0 ? (
         <section className="institution-block">
           <h2>Контакты</h2>
           {institution.address ? <p>{institution.address}</p> : null}
           {institution.phone ? <p>{institution.phone}</p> : null}
+          {hasWebsite ? (
+            <p>
+              <a href={website}>Сайт учреждения</a>
+            </p>
+          ) : null}
           {vkLinks.map((url, i) => (
             <p key={url}>
               <a href={url} rel="noopener" target="_blank">

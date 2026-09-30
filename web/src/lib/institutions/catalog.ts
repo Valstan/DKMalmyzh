@@ -30,6 +30,11 @@ export type InstitutionSeed = {
   isHead?: boolean
   /** Визуальный образ раздела (см. поле `theme` коллекции). */
   theme?: 'kalinino'
+  /**
+   * Личный домен учреждения (см. поле `website` коллекции). Храним punycode:
+   * в href нужен ASCII, а кириллицу браузер покажет сам. Пока есть у двух.
+   */
+  website?: string
   /** Заметка для владельца: что проверить руками. Идёт в описание карточки. */
   note?: string
 }
@@ -42,6 +47,8 @@ export const INSTITUTIONS: InstitutionSeed[] = [
     slug: 'rckd',
     vkSources: ['https://vk.com/dk_malmyzh', 'https://vk.com/id234960216'],
     isHead: true,
+    // Личный адрес раздела: второе имя портала (алиас — имя сохраняется).
+    website: 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/dk/rckd',
   },
   {
     title: 'Дом культуры села Калинино',
@@ -49,6 +56,8 @@ export const INSTITUTIONS: InstitutionSeed[] = [
     settlement: 'с. Калинино',
     slug: 'kalinino',
     vkSources: ['https://vk.com/kalinino_sdk'],
+    // Личный домен: 301 на раздел портала (D-074).
+    website: 'https://xn----8sbksaibjtblz.xn--80adkdyec4j.xn--p1ai/',
     // Раздел унаследовал образ прежнего сайта Калининской ЦКС (D-074).
     theme: 'kalinino',
     note: 'Прежнее название — Калининская ЦКС, отдельным юрлицом быть перестала (филиал РЦКД). Уточнить официальное наименование. Через эту страницу идут также события Дерюшева и Нослов.',

@@ -4,6 +4,7 @@ import * as migration_20260831_184647_vk_import from './20260831_184647_vk_impor
 import * as migration_20260901_063625_vk_sources from './20260901_063625_vk_sources';
 import * as migration_20260904_195445_kalinino from './20260904_195445_kalinino';
 import * as migration_20260921_191732_payload_3_90 from './20260921_191732_payload_3_90';
+import * as migration_20260930_061732_institution_website from './20260930_061732_institution_website';
 
 export const migrations = [
   {
@@ -35,5 +36,10 @@ export const migrations = [
     up: migration_20260921_191732_payload_3_90.up,
     down: migration_20260921_191732_payload_3_90.down,
     name: '20260921_191732_payload_3_90',
+  },
+  {
+    up: migration_20260930_061732_institution_website.up,
+    down: migration_20260930_061732_institution_website.down,
+    name: '20260930_061732_institution_website',
   },
 ];
