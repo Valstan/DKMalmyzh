@@ -780,14 +780,24 @@ jobs:
           esac
           rm -f /tmp/smoke.html /tmp/smoke.hdr
 
-          # Второе имя — алиас портала (адрес раздела ДК, решение 29.09): отдаёт
-          # тот же сайт, 301 больше нет. Без этой проверки алиас может молча
-          # уходить на default_server соседа: сайт на главном имени зелёный,
-          # а второе имя чужое. Каноникал при этом смотрит на главный домен.
+          # Второе имя — адрес раздела ДК. Корень — это вход в раздел: 301 на
+          # /dk/rckd основного домена (заказ владельца 30.09). Глубокие ссылки
+          # второго имени — алиас (тот же сайт, имя сохраняется). Без этих
+          # проверок второе имя может молча уходить на default_server соседа.
+          # Каноникал при этом смотрит на главный домен.
           LEGACY=xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai
-          code=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /tmp/alias.html -w '%{http_code}'                       --max-time 15 "https://$LEGACY/")
+          code=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code}'                             --max-time 15 "https://$LEGACY/")
           echo "второе имя / → $code"
-          [ "$code" = "200" ] || { echo "::error::второе имя не отдаёт 200: $code"; exit 1; }
+          [ "$code" = "301" ] || { echo "::error::корень второго имени не отдаёт 301: $code"; exit 1; }
+          hdr=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -D - --max-time 15 "https://$LEGACY/" | tr -d '\r')
+          case "$hdr" in
+            *"Location: https://$DOMAIN/dk/rckd"*) echo "301 ведёт на /dk/rckd основного домена" ;;
+            *) echo "::error::301 корня второго имени ведёт не на раздел"; exit 1 ;;
+          esac
+
+          deep=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /tmp/alias.html -w '%{http_code}'                       --max-time 15 "https://$LEGACY/dk/rckd")
+          echo "второе имя /dk/rckd → $deep"
+          [ "$deep" = "200" ] || { echo "::error::раздел второго имени не отдаёт 200: $deep"; exit 1; }
           if grep -q "Малмыж" /tmp/alias.html; then
             echo "алиас отдаёт наш сайт: маркер «Малмыж» на месте"
           else
@@ -797,9 +807,9 @@ jobs:
           fi
           rm -f /tmp/alias.html
 
-          deep=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code}'                             --max-time 15 "https://$LEGACY/news")
-          echo "второе имя /news → $deep"
-          [ "$deep" = "200" ] || { echo "::error::глубокая ссылка второго имени не отдаёт 200: $deep"; exit 1; }
+          news=$(curl -sk --resolve "$LEGACY:443:127.0.0.1" -o /dev/null -w '%{http_code}'                             --max-time 15 "https://$LEGACY/news")
+          echo "второе имя /news → $news"
+          [ "$news" = "200" ] || { echo "::error::глубокая ссылка второго имени не отдаёт 200: $news"; exit 1; }
           REMOTE
 
       - name: On failure — журналы прода

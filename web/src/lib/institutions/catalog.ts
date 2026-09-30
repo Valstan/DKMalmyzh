@@ -47,8 +47,9 @@ export const INSTITUTIONS: InstitutionSeed[] = [
     slug: 'rckd',
     vkSources: ['https://vk.com/dk_malmyzh', 'https://vk.com/id234960216'],
     isHead: true,
-    // Личный адрес раздела: второе имя портала (алиас — имя сохраняется).
-    website: 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/dk/rckd',
+    // Личный адрес раздела — корень второго имени: nginx отдаёт с него 301 на
+    // /dk/rckd основного домена (заказ владельца 30.09).
+    website: 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/',
   },
   {
     title: 'Дом культуры села Калинино',
