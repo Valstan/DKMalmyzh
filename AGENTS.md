@@ -119,6 +119,7 @@ fallback «если шлюз недоступен — сходим напрям�
 |---|---|---|
 | `POST /internal/seed-institutions` | заводит/обновляет каталог домов культуры (черновиками) | вручную — `internal-run.yml` |
 | `POST /internal/seed-nav` | дописывает недостающие пункты меню в шапку, не трогая написанное руками (`?dry=1`) | вручную — `internal-run.yml` |
+| `POST /internal/dedup-posts` | удаляет дубли новостей (совпадают заголовок **и** текст) — отчёт сначала (`?dry=1`) | вручную — `internal-run.yml` |
 | `POST /internal/vk-sync` | импорт записей из ВК через шлюз SARAFAN | таймер systemd, плюс вручную оттуда же |
 | `POST /internal/publish-section` | публикация раздела: карточка + свежие записи (`?slug=`, `?days=`, `?dry=1`) | вручную — `internal-run.yml` |
 | `POST /internal/publish-all` | массовая публикация: все карточки + все записи, дата оригинала, раскладка по домам (`?dry=1`) | вручную — `internal-run.yml` |
