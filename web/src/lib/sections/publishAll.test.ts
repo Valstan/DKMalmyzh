@@ -59,6 +59,14 @@ describe('matchInstitutionByText', () => {
     expect(matchInstitutionByText('Гоньба и Тат-Верх-Гоньба', '', candidates)).toBeNull()
   })
 
+  it('полное совпадение сильнее префикса соседней карточки', () => {
+    const houses = [
+      { id: 1, shortTitle: 'Самотест-В' },
+      { id: 2, shortTitle: 'Самотестово-Т' },
+    ]
+    expect(matchInstitutionByText('Праздник в Самотестово-Т удался', '', houses)).toBe(2)
+  })
+
   it('ничего не упомянуто — null', () => {
     expect(matchInstitutionByText('Областной семинар', 'приезжали гости', candidates)).toBeNull()
     expect(matchInstitutionByText('', '', candidates)).toBeNull()

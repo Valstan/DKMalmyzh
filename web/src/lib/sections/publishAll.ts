@@ -53,6 +53,7 @@ export type PublishAllSummary = {
   postsAssignedByText: number
   postsUnassigned: number
   postsDateFallbackKept: number
+  postsSkippedNoDate: number
   failed: number
   unassigned: UnassignedPost[]
   assignedPreview: AssignedPreview[]
@@ -118,8 +119,8 @@ export type MatchCandidate = { id: number; shortTitle?: string | null }
 // от 4 букв («рожках» — на «рожк», «Гоньбе» — на «гонь»). Составное название
 // требует ВСЕ значимые токены («Большой Китяк» — и «больш», и «кит»: иначе
 // каждое «большой» в тексте притягивало бы пост в Китяк).
-// Совпало ровно одно учреждение — пристраиваем; ноль или несколько — нет
-// (лучше непристроенная, чем чужая).
+// Побеждает сильнейшее свидетельство — самый длинный совпавший стем; равных
+// нет — не пристраиваем (лучше непристроенная, чем чужая).
 export function matchInstitutionByText(
   title: unknown,
   text: unknown,
@@ -136,19 +137,34 @@ export function matchInstitutionByText(
       .split(/[\s-]+/)
       .map((s) => s.trim())
       .filter((s) => s.length >= 4)
-  const tokenMatches = (token: string): boolean => {
-    for (let cut = 0; cut <= 2 && token.length - cut >= 4; cut++) {
-      const stem = token.slice(0, token.length - cut)
-      if (words.some((word) => word.startsWith(stem))) return true
-    }
-    return false
-  }
-  const matched = candidates.filter((c) => {
-    const tokens = tokensOf(c.shortTitle)
-    return tokens.length > 0 && tokens.every(tokenMatches)
-  })
-  if (matched.length !== 1) return null
-  return matched[0].id
+  const matched = candidates
+    .map((c) => {
+      const tokens = tokensOf(c.shortTitle)
+      if (tokens.length === 0) return null
+      // Самый длинный совпавший стем — мера силы свидетельства: полное
+      // «Самотестово» сильнее префикса «Самотест» от соседней карточки.
+      let best = 0
+      let ok = true
+      for (const token of tokens) {
+        let tokenBest = 0
+        for (let cut = 0; cut <= 2 && token.length - cut >= 4; cut++) {
+          const stem = token.slice(0, token.length - cut)
+          if (words.some((word) => word.startsWith(stem))) tokenBest = Math.max(tokenBest, stem.length)
+        }
+        if (tokenBest === 0) {
+          ok = false
+          break
+        }
+        best = Math.max(best, tokenBest)
+      }
+      return ok ? { id: c.id, best } : null
+    })
+    .filter((m): m is { id: number; best: number } => m !== null)
+  if (matched.length === 0) return null
+  const top = Math.max(...matched.map((m) => m.best))
+  const winners = matched.filter((m) => m.best === top)
+  if (winners.length !== 1) return null
+  return winners[0].id
 }
 
 // Текст записи для матчинга: у richText lexical забираем текстовые узлы.
@@ -185,6 +201,7 @@ export async function publishAll(payload: Payload, options: PublishAllOptions): 
     postsAssignedByText: 0,
     postsUnassigned: 0,
     postsDateFallbackKept: 0,
+    postsSkippedNoDate: 0,
     failed: 0,
     unassigned: [],
     assignedPreview: [],
@@ -328,7 +345,10 @@ export async function publishAll(payload: Payload, options: PublishAllOptions): 
   for (const item of plan) {
     const { doc } = item
     if (item.publishIso === null) {
-      err(`запись «${doc.title ?? doc.id}» без даты — пропускаем, руками`)
+      // Пропуск без даты — штатный исход, а не ошибка: нечего ставить в
+      // publishedAt, запись остаётся черновиком для рук редактора.
+      summary.postsSkippedNoDate += 1
+      say(`запись «${doc.title ?? doc.id}» без даты — пропускаем, руками`)
       continue
     }
     try {
@@ -378,7 +398,7 @@ export async function publishAll(payload: Payload, options: PublishAllOptions): 
 
   say(
     `итог: записей опубликовано ${summary.postsPublished} из ${drafts.length}, дат уже опубликованным поправлено ${summary.postsBackfilled}, ` +
-      `без дома осталось ${summary.postsUnassigned}, с ошибкой ${summary.failed}`,
+      `без даты пропущено ${summary.postsSkippedNoDate}, без дома осталось ${summary.postsUnassigned}, с ошибкой ${summary.failed}`,
   )
 
   // Один сброс кэша вместо сотен из хуков (записи писались с disableRevalidate).
