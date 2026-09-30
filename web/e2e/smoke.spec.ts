@@ -118,6 +118,9 @@ test.describe('публичные страницы открываются в б�
   test('из общей ленты виден бейдж дома культуры', async ({ page }) => {
     await withoutPageErrors(page, async () => {
       await page.goto('/news')
+      // Общая лента — карточки с превью (заказ 30.09), не голые заголовки.
+      await expect(page.locator('.news-card').first()).toBeVisible()
+      await expect(page.locator('.news-card__cover').first()).toBeVisible()
       // .first(): у ДК в ленте несколько материалов, бейдж у каждого свой.
       const badge = page.getByRole('link', { name: 'CI', exact: true }).first()
       await expect(badge).toBeVisible()

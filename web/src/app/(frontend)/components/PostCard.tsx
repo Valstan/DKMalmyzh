@@ -34,10 +34,16 @@ export type PostCardDoc = {
   slug?: string | null
   date?: string | null
   publishedAt?: string | null
+  category?: string | null
   type?: string | null
   institution?: unknown
   cover?: MediaDoc | string | number | null
 }
+
+// Уровень заголовка карточки: `h3` внутри блока с `h2` (главная, раздел ДК),
+// `h2` — когда карточки идут сразу под `h1` (общая лента /news). Пропускать
+// уровень нельзя: это ломает навигацию по заголовкам для скринридера.
+export type CardHeading = 'h2' | 'h3'
 
 // Список карточек. `priorityCount` — сколько первых грузим сразу (кандидаты в
 // LCP), остальные — lazy: на разделе с полусотней записей eagerly грузить всю
@@ -46,11 +52,15 @@ export function PostCards({
   posts,
   showInstitution = true,
   showType = true,
+  showCategory = false,
+  headingLevel = 'h3',
   priorityCount = 2,
 }: {
   posts: PostCardDoc[]
   showInstitution?: boolean
   showType?: boolean
+  showCategory?: boolean
+  headingLevel?: CardHeading
   priorityCount?: number
 }) {
   return (
@@ -62,6 +72,8 @@ export function PostCards({
           priority={index < priorityCount}
           showInstitution={showInstitution}
           showType={showType}
+          showCategory={showCategory}
+          headingLevel={headingLevel}
         />
       ))}
     </ul>
@@ -73,17 +85,22 @@ export function PostCard({
   priority,
   showInstitution = true,
   showType = true,
+  showCategory = false,
+  headingLevel = 'h3',
 }: {
   post: PostCardDoc
   priority: boolean
   showInstitution?: boolean
   showType?: boolean
+  showCategory?: boolean
+  headingLevel?: CardHeading
 }) {
   const cover = typeof post.cover === 'object' && post.cover ? post.cover : null
   const size = cover?.sizes?.card ?? cover?.sizes?.thumbnail ?? null
   const src = size?.url || cover?.url || null
   const href = `/news/${encodeURIComponent(post.slug ?? '')}`
   const title = post.title || 'Без заголовка'
+  const Heading = headingLevel
   return (
     <li className="news-card">
       {src ? (
@@ -104,12 +121,13 @@ export function PostCard({
         </div>
       )}
       <div className="news-card__body">
-        <h3>
+        <Heading>
           <Link href={href}>{title}</Link>
-        </h3>
+        </Heading>
         <p className="post-list__meta">
           {showType && post.type === 'event' ? 'Афиша · ' : ''}
           {formatPostDate(post.date || post.publishedAt)}
+          {showCategory && post.category ? ` · ${post.category}` : ''}
           {showInstitution ? <PostInstitutionBadge institution={post.institution} /> : null}
         </p>
       </div>

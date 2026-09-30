@@ -1,23 +1,21 @@
-import Link from 'next/link'
 import config from '@payload-config'
 import { getPayload } from 'payload'
 
 import { withRetry } from '../../../lib/withRetry'
-import { formatPostDate } from '../../../lib/format'
-import { institutionBadge, institutionHref, institutionLabel } from '../../../lib/institutions'
+import { PostCards, type PostCardDoc } from '../components/PostCard'
 
-type PostListItem = {
-  id: string | number
-  title?: string | null
-  slug?: string | null
-  date?: string | null
-  publishedAt?: string | null
-  category?: string | null
-  type?: string | null
-  institution?: unknown
-}
-
-async function getPosts(): Promise<PostListItem[]> {
+// Общая лента «Афиша и новости» — карточками с превью, как на главной и в
+// разделах домов культуры (заказ владельца 30.09).
+//
+// depth: 1 — карточкам нужна обложка объектом с `sizes`; при `depth: 0` приходит
+// только идентификатором, и превью рисовать нечего. Тот же уровень нужен для
+// бейджа дома культуры, который в общей ленте осмыслен (материалы разных ДК
+// вперемешку).
+//
+// Рубрика в мета сохранена: в общей ленте это единственное, чем записи разных
+// домов различаются, кроме бейджа. Уровень заголовка карточки — `h2`: список
+// идёт сразу под `h1` страницы, пропускать уровень нельзя.
+async function getPosts(): Promise<PostCardDoc[]> {
   try {
     return await withRetry(async () => {
       const payload = await getPayload({ config })
@@ -25,11 +23,10 @@ async function getPosts(): Promise<PostListItem[]> {
         collection: 'posts',
         where: { _status: { equals: 'published' } },
         sort: '-date',
-        // depth: 1 — в общей ленте у каждой карточки бейдж своего дома культуры.
         depth: 1,
         limit: 100,
       })
-      return res.docs as PostListItem[]
+      return res.docs as PostCardDoc[]
     })
   } catch {
     return []
@@ -45,36 +42,8 @@ export async function NewsView() {
       {posts.length === 0 ? (
         <p className="muted">Пока нет новостей.</p>
       ) : (
-        <ul className="post-list">
-          {posts.map((post) => (
-            <li key={post.id} className="post-list__item">
-              <h2>
-                <Link href={`/news/${encodeURIComponent(post.slug ?? '')}`}>
-                  {post.title || 'Без заголовка'}
-                </Link>
-              </h2>
-              <p className="post-list__meta">
-                {post.type === 'event' ? 'Афиша · ' : ''}
-                {formatPostDate(post.date || post.publishedAt)}
-                {post.category ? ` · ${post.category}` : ''}
-                <PostInstitution institution={post.institution} />
-              </p>
-            </li>
-          ))}
-        </ul>
+        <PostCards posts={posts} showCategory headingLevel="h2" />
       )}
     </section>
-  )
-}
-
-// Бейдж учреждения. Материал без привязки — общерайонный, бейджа не получает.
-function PostInstitution({ institution }: { institution: unknown }) {
-  const ref = institutionBadge(institution)
-  if (!ref) return null
-  return (
-    <>
-      {' · '}
-      <Link href={institutionHref(ref)}>{institutionLabel(ref)}</Link>
-    </>
   )
 }
