@@ -145,8 +145,10 @@ export async function dedupePosts(
   })
   const docs = all.docs as unknown as DedupeDoc[]
   summary.scanned = docs.length
-  summary.undecidable = docs.filter((doc) => dedupeKey(doc) === null).length
 
+  // `undecidable` считаем по подготовленным записям, где текст уже разобран:
+  // в сырых документах поля `content` нет вовсе, и счётчик вышел бы «все
+  // записи» — то есть на первом же прогоне сообщал бы чушь.
   const heads = new Map<number, boolean>()
   const institutions = await payload.find({
     collection: 'institutions',
@@ -194,6 +196,8 @@ export async function dedupePosts(
       institutionId,
     }
   })
+
+  summary.undecidable = prepared.filter((doc) => dedupeKey(doc) === null).length
 
   const groups = groupDuplicates(prepared, windowDays)
   summary.groups = groups.length
