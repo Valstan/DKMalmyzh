@@ -27,6 +27,7 @@ on:
           - seed-institutions
           - seed-nav
           - dedup-posts
+          - retitle-posters
           - vk-sync
           - publish-section
           - publish-all
@@ -39,7 +40,7 @@ on:
         required: false
         type: string
       dry_run:
-        description: 'Только показать план, ничего не менять (seed-nav, dedup-posts, publish-section, publish-all, reslug-vk, kalinino-transfer)'
+        description: 'Только показать план, ничего не менять (seed-nav, dedup-posts, retitle-posters, publish-section, publish-all, reslug-vk, kalinino-transfer)'
         required: false
         default: false
         type: boolean
@@ -102,7 +103,7 @@ jobs:
         run: |
           set -e
           case "$OPERATION" in
-            seed-institutions|seed-nav|dedup-posts|vk-sync|publish-section|publish-all|reslug-vk|kalinino-transfer) ;;
+            seed-institutions|seed-nav|dedup-posts|retitle-posters|vk-sync|publish-section|publish-all|reslug-vk|kalinino-transfer) ;;
             *) echo "::error::неизвестная операция"; exit 1 ;;
           esac
           case "$SKIP_COUNT" in true|false|'') ;; *) echo "::error::skip_count_check — только true/false"; exit 1 ;; esac
