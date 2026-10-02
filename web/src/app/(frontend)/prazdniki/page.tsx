@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 
-import { canonicalOf } from '../../../lib/site'
+import { canonicalOf, openGraphWithImage } from '../../../lib/site'
 import { FestivalsView } from '../_views/FestivalsView'
 
 // Праздники района — карточки-ссылки на сайты праздников (D-075). Данные
@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   description:
     'Большие праздники Малмыжского района — Сабантуй и ярмарка Казанская: ссылки на их сайты.',
   alternates: { canonical: canonicalOf('/prazdniki') },
-  openGraph: { url: canonicalOf('/prazdniki'), title: 'Праздники района' },
+  openGraph: openGraphWithImage({ path: '/prazdniki', title: 'Праздники района' }),
 }
 
 export default function FestivalsPage() {

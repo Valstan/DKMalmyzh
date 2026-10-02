@@ -4,7 +4,7 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 import { notFound } from 'next/navigation'
 
-import { canonicalOf, SITE_NAME } from '../../../lib/site'
+import { canonicalOf, openGraphWithImage, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { FEED_PAGE_SIZE, getFeedPageSafe, type FeedPage } from '../../../lib/feed'
@@ -63,7 +63,10 @@ export async function institutionMeta(slug: string): Promise<Metadata> {
       title: institution.title || SITE_NAME,
       description: institution.description || undefined,
       alternates: { canonical: canonicalOf(`/dk/${slug}`) },
-      openGraph: { url: canonicalOf(`/dk/${slug}`), title: institution.title || SITE_NAME },
+      openGraph: openGraphWithImage({
+        path: `/dk/${slug}`,
+        title: institution.title || SITE_NAME,
+      }),
     }
   } catch {
     return {}

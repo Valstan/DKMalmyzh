@@ -55,4 +55,37 @@ describe('site', () => {
     expect(SITE_NAME.trim().length).toBeGreaterThan(0)
     expect(SITE_DESC.trim().length).toBeGreaterThan(0)
   })
+
+  // Обложка ссылки. Проверяем именно пару «canonical + картинка»: до приёмки
+  // #123 вызов забрасывали только в layout, и до страниц со своим openGraph он
+  // не доезжал — og:image остался лишь у новостей.
+  describe('openGraphWithImage', () => {
+    it('без своего кадра даёт общую обложку портала', async () => {
+      const { openGraphWithImage } = await loadSite('https://example.test')
+      expect(openGraphWithImage({ path: '/dk' }).images).toEqual(['https://example.test/og.png'])
+    })
+
+    it('со своим кадром общая не подставляется', async () => {
+      const { openGraphWithImage } = await loadSite('https://example.test')
+      const og = openGraphWithImage({ path: '/news/x', images: ['https://example.test/a.jpg'] })
+      expect(og.images).toEqual(['https://example.test/a.jpg'])
+    })
+
+    it('url собирается из пути тем же кодированием, что canonical', async () => {
+      const { canonicalOf, openGraphWithImage } = await loadSite('https://example.test')
+      const og = openGraphWithImage({ path: '/dk/рожки' })
+      expect(og.url).toBe(canonicalOf('/dk/рожки'))
+      expect(og.url).not.toContain('рожки')
+    })
+
+    it('описание и заголовок попадают только когда заданы', async () => {
+      const { openGraphWithImage } = await loadSite('https://example.test')
+      const bare = openGraphWithImage({ path: '/' })
+      expect(bare).not.toHaveProperty('title')
+      expect(bare).not.toHaveProperty('description')
+      const full = openGraphWithImage({ path: '/', title: 'Т', description: 'О' })
+      expect(full.title).toBe('Т')
+      expect(full.description).toBe('О')
+    })
+  })
 })

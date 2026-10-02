@@ -4,7 +4,7 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 import { notFound } from 'next/navigation'
 
-import { canonicalOf, SITE_NAME } from '../../../lib/site'
+import { canonicalOf, openGraphWithImage, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { formatPostDate } from '../../../lib/format'
@@ -107,7 +107,6 @@ export async function postMeta(slug: string): Promise<Metadata> {
     // жил незамеченным.
     const post = await getPost(decodeURIComponent(slug))
     if (!post) return {}
-    const canonical = canonicalOf(`/news/${slug}`)
     const title = post.title || SITE_NAME
     // Описание строим по тексту записи: до этого все новости отдавали ОДИН
     // description из layout, и поисковик показывал одинаковый сниппет.
@@ -125,14 +124,14 @@ export async function postMeta(slug: string): Promise<Metadata> {
     return {
       title: post.title || SITE_NAME,
       description,
-      alternates: { canonical },
-      openGraph: {
-        url: canonical,
+      alternates: { canonical: canonicalOf(`/news/${slug}`) },
+      openGraph: openGraphWithImage({
+        path: `/news/${slug}`,
         title,
         description,
         type: 'article',
         images: [ogImage],
-      },
+      }),
       twitter: { card: 'summary_large_image' },
     }
   } catch {
