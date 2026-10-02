@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { articleJsonLd, eventJsonLd, institutionJsonLd, organizationJsonLd, toJsonLdScript } from './jsonLd'
+import { SITE_URL } from './site'
 
 describe('toJsonLdScript', () => {
   it('экранирует угловые скобки — иначе </script> закроет тег изнутри', () => {
@@ -26,7 +27,10 @@ describe('organizationJsonLd', () => {
     const ld = organizationJsonLd()
     expect(ld['@type']).toBe('Organization')
     expect(ld.name).toContain('Малмыж')
-    expect(ld.logo).toMatch(/^https:\/\//)
+    // Логотип — абсолютный адрес из SITE_URL. Схему НЕ проверяем: в CI
+    // NEXT_PUBLIC_SERVER_URL=http://127.0.0.1:3005, и требование https делало
+    // бы тест зависимым от окружения, а не от кода (поймано красным гейтом).
+    expect(ld.logo).toBe(`${SITE_URL}/icon.png`)
   })
 })
 

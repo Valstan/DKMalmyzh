@@ -228,8 +228,10 @@ test.describe('публичные страницы открываются в б�
     const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content')
     expect(ogImage, 'нет og:image — ссылка развернётся без картинки').not.toBeNull()
     // Обложка обязана быть АБСОЛЮТНОЙ и живой: относительный адрес мессенджер
-    // не откроет, а битый — покажет пустую карточку.
-    expect(ogImage).toMatch(/^https:\/\//)
+    // не откроет, а битый — покажет пустую карточку. Схему не требуем: в гейте
+    // база — http://127.0.0.1:3005, важно происхождение и доступность.
+    const imageUrl = new URL(ogImage as string)
+    expect(imageUrl.origin, 'og:image не абсолютный').toBe(new URL(page.url()).origin)
     const res = await request.get(ogImage as string)
     expect(res.status(), `картинка превью недоступна: ${ogImage}`).toBe(200)
   })
