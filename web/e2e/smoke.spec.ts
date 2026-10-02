@@ -201,7 +201,8 @@ test('дома культуры: картинка, короткое имя и п
 
     const search = page.locator('.dk-search__input')
     await expect(search).toBeVisible()
-    await expect(page.locator('.dk-search__status')).toContainText(`из ${total}`)
+    // До ввода счётчик показывает общее число, после — «найдено X из Y».
+    await expect(page.locator('.dk-search__status')).toContainText(`Всего ${total}`)
 
     // «В любом месте, а не в начале»: фрагмент из середины названия.
     const middle = CI_INSTITUTION_TITLE_UPDATED.slice(3, -1)
