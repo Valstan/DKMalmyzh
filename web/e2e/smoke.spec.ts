@@ -188,7 +188,9 @@ test('дома культуры: картинка, короткое имя и п
     const total = await cards.count()
     expect(total, 'список учреждений пуст').toBeGreaterThan(0)
 
-    // Картинка у каждого, и это не пустая строка.
+    // Картинка у каждого, и это не пустая строка. Разные значки у разных
+    // учреждений проверяет юнит на настоящей карте (33 адреса — 33 разных);
+    // здесь, на выдуманных адресах тестовой базы, карта покрывать не обязана.
     const emojis = await page.locator('.dk-item__emoji').allTextContents()
     expect(emojis).toHaveLength(total)
     expect(emojis.every((e) => e.trim().length > 0), 'учреждение без картинки').toBe(true)
@@ -207,10 +209,6 @@ test('дома культуры: картинка, короткое имя и п
       metas.every((m) => !/^[сдп]\.\s|пгт\.\s/i.test(m.trim())),
       `поселение в подписи: ${JSON.stringify(metas.filter((m) => /^[сдп]\.\s|пгт\.\s/i.test(m.trim())))}`,
     ).toBe(true)
-
-    // Картинки разные: общий театр на всех — это снова «рябит», ради чего всё
-    // и затевалось. Строгая уникальность — в юнитах; здесь хотя бы не-один.
-    expect(new Set(emojis.map((e) => e.trim())).size, 'у всех одна картинка').toBeGreaterThan(1)
 
     const search = page.locator('.dk-search__input')
     await expect(search).toBeVisible()
