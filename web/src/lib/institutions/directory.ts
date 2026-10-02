@@ -60,7 +60,12 @@ export function institutionDisplayName(ref: DirectoryItem): string {
   const short = (ref.shortTitle ?? '').trim()
   const settlement = stripSettlementPrefix(ref.settlement ?? '')
 
-  if (!isVillageHouse(ref)) return short || title || settlement
+  // У учреждения, которое не дом культуры, показываем ПОЛНОЕ название, даже если
+  // короткое заполнено. «ДШИ» в списке из тридцати трёх пунктов не говорит
+  // посетителю ничего; «Детская школа искусств Малмыжа» говорит всё. Первая версия
+  // правила отдавала тут короткое имя, и юнит на реальных данных (ДШИ, музей,
+  // заведённые 03.10) это поймал.
+  if (!isVillageHouse(ref)) return title || short || settlement
   return short || settlement || title
 }
 

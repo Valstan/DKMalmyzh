@@ -87,16 +87,47 @@ describe('institutionDisplayName', () => {
   })
 
   it('учреждение не-дом показываем полным названием — различие и есть смысл', () => {
+    // Короткое имя «РЦКД Малмыж» в базе есть, но показываем полное: сокращение
+    // понятно только местным, а список читают и гости, и роботы.
     expect(
       institutionDisplayName(
         house({ title: 'Малмыжский районный Центр культуры и досуга', shortTitle: 'РЦКД Малмыж' }),
       ),
-    ).toBe('РЦКД Малмыж')
+    ).toBe('Малмыжский районный Центр культуры и досуга')
     expect(
       institutionDisplayName(
         house({ title: 'Малмыжская детская школа искусств', shortTitle: null }),
       ),
     ).toBe('Малмыжская детская школа искусств')
+  })
+
+  // ДШИ и музей заведены в справочник 03.10 по письму Мозга. Короткая подпись у
+  // них в базе есть («ДШИ», «Музей»), а показывать надо полное название: «ДШИ» в
+  // списке из тридцати трёх пунктов не говорит посетителю ничего.
+  it('ДШИ и музей показываем полным названием, несмотря на короткую подпись', () => {
+    const dshi = house({
+      slug: 'dshi',
+      title: 'Детская школа искусств Малмыжа',
+      shortTitle: 'ДШИ',
+      settlement: 'г. Малмыж',
+    })
+    const muzej = house({
+      slug: 'kraevedcheskiy-muzej',
+      title: 'Краеведческий музей Малмыжа',
+      shortTitle: 'Музей',
+      settlement: 'г. Малмыж',
+    })
+    expect(institutionDisplayName(dshi)).toBe('Детская школа искусств Малмыжа')
+    expect(institutionDisplayName(muzej)).toBe('Краеведческий музей Малмыжа')
+    expect(institutionEmoji(dshi)).toBe('🎹')
+    expect(institutionEmoji(muzej)).toBe('🏺')
+  })
+
+  it('ДШИ и музей находятся поиском и по названию, и по сокращению', () => {
+    const dshi = house({ slug: 'dshi', title: 'Детская школа искусств Малмыжа', shortTitle: 'ДШИ' })
+    expect(filterInstitutions([dshi], 'школа').map((i) => i.slug)).toEqual(['dshi'])
+    expect(filterInstitutions([dshi], 'дши').map((i) => i.slug)).toEqual(['dshi'])
+    expect(filterInstitutions([dshi], 'искусств').map((i) => i.slug)).toEqual(['dshi'])
   })
 
   it('когда нечего показать — полное название, а не «Без названия»', () => {
@@ -202,7 +233,7 @@ describe('готовая строка для показа', () => {
     const head = rows[2]
     expect(head.external).toBe(true)
     expect(head.meta).toContain('головное учреждение')
-    expect(head.name).toBe('РЦКД Малмыж')
+    expect(head.name).toBe('Малмыжский районный Центр культуры и досуга')
   })
 
   it('строка поиска строчная — иначе поиск по капс молча перестал бы находить', () => {
