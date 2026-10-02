@@ -33,5 +33,14 @@ export const ciEventDate = (): string =>
 export const CI_DRAFT_POST_SLUG = 'ci-draft-post'
 export const CI_DRAFT_POST_TITLE = 'CI: черновик новости (не должен быть виден)'
 
+// Новость с КИРИЛЛИЧЕСКИМ адресом — их на проде 94% (784 из 835), и это не
+// украшение фикстуры, а регрессионная защита: `params.slug` приходит
+// percent-encoded, и метаданные обязаны декодировать его сами. Пока такой
+// фикстуры не было, баг жил незамеченным: title/description/canonical молча
+// падали на значения из layout у подавляющего большинства новостей.
+export const CI_CYRILLIC_POST_SLUG = 'ci-новость-кириллицей'
+export const CI_CYRILLIC_POST_TITLE = 'CI: новость с кириллическим адресом'
+export const CI_CYRILLIC_POST_TEXT = 'Текст кириллической новости для проверки описания.'
+
 export const CI_DRAFT_INSTITUTION_SLUG = 'ci-draft-dk'
 export const CI_DRAFT_INSTITUTION_TITLE = 'CI: черновик дома культуры (не должен быть виден)'

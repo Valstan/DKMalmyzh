@@ -78,7 +78,14 @@ async function getPost(slug: string): Promise<PostDoc | null> {
 
 export async function postMeta(slug: string): Promise<Metadata> {
   try {
-    const post = await getPost(slug)
+    // ⚠️ Slug декодируется ЗДЕСЬ, а не только в теле страницы: `params.slug`
+    // приходит percent-encoded (в базе 94% адресов — кириллические), и поиск
+    // по сырой строке не находит документ. `catch` внизу глотал это молча:
+    // 784 страницы из 835 отдавали generic title/description из layout и
+    // ВООБЩЕ не имели canonical — робот видел дубли, а соцсеть — карточку
+    // главной. Тело страницы страдало меньше (там decode был), поэтому баг
+    // жил незамеченным.
+    const post = await getPost(decodeURIComponent(slug))
     if (!post) return {}
     const canonical = canonicalOf(`/news/${slug}`)
     const title = post.title || SITE_NAME
