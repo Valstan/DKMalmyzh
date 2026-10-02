@@ -569,6 +569,53 @@ p {
   font-size: 0.82rem;
   font-weight: 800;
 }
+
+/* Список учреждений: окно поиска + карточка с картинкой. */
+.dk-search {
+  margin: 1.2rem 0 1.4rem;
+  padding: 1rem 1.1rem;
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 18px 34px 16px 30px;
+  box-shadow: 5px 5px 0 var(--aqua);
+}
+.dk-search__label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 800;
+}
+.dk-search__input {
+  width: 100%;
+  padding: 0.7rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  color: var(--ink);
+  background: #fff;
+  border: 3px solid var(--ink);
+  border-radius: 14px 26px 14px 22px;
+}
+.dk-search__input:focus-visible {
+  outline: 3px solid var(--berry);
+  outline-offset: 2px;
+}
+.dk-search__status {
+  margin: 0.45rem 0 0;
+  color: var(--berry);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+/* Картинка учреждения — декоративная, поэтому `aria-hidden` в разметке и
+   `aria-label` на заголовке: иначе озвучка читала бы её как слово. */
+.dk-item__title {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+.dk-item__emoji {
+  flex: 0 0 auto;
+  font-size: 1.35rem;
+  line-height: 1;
+}
 .post-cover {
   width: 100%;
   margin: 1rem 0;

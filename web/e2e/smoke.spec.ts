@@ -173,7 +173,59 @@ test.describe('публичные страницы открываются в б�
     })
   })
 
-  // Канонический адрес задаётся постранично. Пока он жил в корневом layout, ВСЕ
+  // Список домов культуры: заказчик просил три вещи — картинку у каждого учреждения,
+// короткое имя вместо родительного падежа и поиск по совпадению в любом месте
+// названия.
+//
+// Проверка НЕ прибита к «Китяку» и вообще к конкретным селам: в гейтовой базе их
+// нет, там одно засеянное учреждение. Запрос строится из его собственного
+// названия, а «в любом месте» проверяется фрагментом из середины строки.
+test('дома культуры: картинка, короткое имя и поиск по совпадению', async ({ page }) => {
+  await withoutPageErrors(page, async () => {
+    await page.goto('/dk')
+
+    const cards = page.locator('.dk-item')
+    const total = await cards.count()
+    expect(total, 'список учреждений пуст').toBeGreaterThan(0)
+
+    // Картинка у каждого, и это не пустая строка.
+    const emojis = await page.locator('.dk-item__emoji').allTextContents()
+    expect(emojis).toHaveLength(total)
+    expect(emojis.every((e) => e.trim().length > 0), 'учреждение без картинки').toBe(true)
+
+    // Короткая подпись не повторяет «Дом культуры …» — ради этого правила и
+    // затевалось; а доступное имя ссылки остаётся полным (иначе озвучка в списке
+    // из тридцати одного пункта читала бы «Калинино» без всякого смысла).
+    const firstCard = cards.first()
+    await expect(firstCard.locator('.post-list__meta')).not.toContainText('Дом культуры')
+
+    const search = page.locator('.dk-search__input')
+    await expect(search).toBeVisible()
+    // До ввода счётчик показывает общее число, после — «найдено X из Y».
+    await expect(page.locator('.dk-search__status')).toContainText(`Всего ${total}`)
+
+    // «В любом месте, а не в начале»: фрагмент из середины названия.
+    const middle = CI_INSTITUTION_TITLE_UPDATED.slice(3, -1)
+    await search.fill(middle)
+    expect(await cards.count(), 'поиск по середине названия ничего не нашёл').toBe(1)
+    await expect(page.locator('.dk-search__status')).toContainText(`Найдено 1 из ${total}`)
+
+    // Регистр не важен.
+    await search.fill(middle.toUpperCase())
+    expect(await cards.count()).toBe(1)
+
+    // Список пересобирается на том же адресе, без перезагрузки.
+    await search.fill('совершенно-нет-такого')
+    await expect(page.locator('.muted').filter({ hasText: 'ничего не нашлось' })).toBeVisible()
+    expect(await cards.count()).toBe(0)
+
+    // И очистка запроса возвращает полный список.
+    await search.fill('')
+    await expect(cards).toHaveCount(total)
+  })
+})
+
+// Канонический адрес задаётся постранично. Пока он жил в корневом layout, ВСЕ
   // страницы объявляли канонической главную, и раздел выпадал из индекса при
   // живом sitemap — расхождение, которое снаружи ничем себя не выдаёт.
   //
