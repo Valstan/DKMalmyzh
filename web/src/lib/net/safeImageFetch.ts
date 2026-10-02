@@ -73,6 +73,19 @@ export async function resolveAddresses(hostname: string): Promise<string[]> {
 }
 
 /**
+ * Точка подмены резолва для самопроверок.
+ *
+ * Приём — тот же, что у Payload в `safeFetch`: функцию резолва кладут в объект,
+ * чтобы тест мог подменить её целиком. Иначе проверка импорта, которая и так
+ * подменяет сеть фиктивными адресами, валилась бы на резолве `example.invalid`
+ * — то есть гейт ловил бы не дефект кода, а собственную заглушку.
+ *
+ * Публичной части это не касается: наружу `fetchImageBytes` ходит только через
+ * этот объект.
+ */
+export const _internal_netProbe = { lookup: resolveAddresses }
+
+/**
  * Скачивает картинку или объясняет, почему не скачал. Никогда не бросает и
  * никогда не возвращает частично скачанные байты.
  */
@@ -95,7 +108,7 @@ export async function fetchImageBytes(
   }
 
   try {
-    const addresses = await resolveAddresses(parsed.hostname)
+    const addresses = await _internal_netProbe.lookup(parsed.hostname)
     if (addresses.length === 0) return { ok: false, reason: 'имя не разрешилось' }
     // Проверяем ВСЕ адреса, а не первый: имя с несколькими A-записями, из
     // которых один внутренний, — это ровно тот случай, ради которого список
