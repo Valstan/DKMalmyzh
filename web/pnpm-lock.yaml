@@ -29,6 +29,9 @@ importers:
       graphql:
         specifier: ^16.8.2
         version: 16.14.2
+      ipaddr.js:
+        specifier: 2.2.0
+        version: 2.2.0
       next:
         specifier: 15.5.25
         version: 15.5.25(@playwright/test@1.62.1)(@types/node@22.19.9)(react-dom@19.2.1(react@19.2.1))(react@19.2.1)(sass@1.77.4)

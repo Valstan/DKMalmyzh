@@ -148,7 +148,12 @@ export async function POST(request: Request): Promise<Response> {
   const mediaIds: number[] = []
   for (const [index, image] of incoming.entries()) {
     const url = typeof image === 'string' ? image : image?.url
-    const alt = typeof image === 'object' && image?.alt ? image.alt : title
+    // Запасной alt — НЕ заголовок записи. До 02.10 здесь стояло `?? title`, и
+    // это была тихая утечка: alt ложится в Media, а её чтение открыто всем, так
+    // что `GET /api/media` выдавал заголовки ещё не опубликованных черновиков
+    // (аудит #057). Описание изображения — украшение, а не носитель смысла;
+    // страница новости всё равно подставляет своё.
+    const alt = typeof image === 'object' && image?.alt ? image.alt : ''
     if (!url || !/^https?:\/\//i.test(url)) {
       warnings.push(`image ${index}: invalid url`)
       continue

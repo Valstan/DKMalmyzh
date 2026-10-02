@@ -153,6 +153,16 @@ export const Posts: CollectionConfig<'posts'> = {
       label: 'Запись ВКонтакте',
       unique: true,
       index: true,
+      // `admin.readOnly` — подсказка интерфейса и ровно ничего больше: сервер её
+      // не проверяет, `PATCH /api/posts/:id` с cookie редактора переписывает поле
+      // как обычно (аудит #057). Смысл `vkUid` — «по нему синхронизация узнаёт уже
+      // импортированное», и подмена ключа ломает это молча: либо запись из ВК
+      // навсегда перестаёт импортироваться, либо следующая синхронизация создаёт
+      // дубль с тем же адресом. Запрет на запись — единственная честная защита;
+      // `create: () => false` НЕ ставим: локальный API импорта идёт с
+      // `overrideAccess`, и запрет там всё равно не действует, но в REST-запросе
+      // он сломал бы создание записи целиком.
+      access: { update: () => false },
       admin: {
         position: 'sidebar',
         readOnly: true,
@@ -166,6 +176,11 @@ export const Posts: CollectionConfig<'posts'> = {
       name: 'sourceUrl',
       type: 'text',
       label: 'Ссылка на оригинал',
+      // Тот же случай, что у `vkUid`: без серверного запрета provenance
+      // переписывается через REST (аудит #057). Поле восстанавливается вручную
+      // ровно в том же редком случае, поэтому запрет на автообновление не мешает
+      // живому редактору — он чинит его через локальный путь операций.
+      access: { update: () => false },
       admin: {
         position: 'sidebar',
         readOnly: true,
@@ -182,6 +197,7 @@ export const Posts: CollectionConfig<'posts'> = {
         { label: 'Создано вручную', value: 'manual' },
         { label: 'Импорт из ВКонтакте', value: 'vk' },
       ],
+      access: { update: () => false },
       admin: {
         position: 'sidebar',
         readOnly: true,

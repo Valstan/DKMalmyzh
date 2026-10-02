@@ -1,5 +1,6 @@
 import type { getPayload } from 'payload'
 
+import { fetchImageBytes } from '../net/safeImageFetch'
 import type { VkWallItem } from './api'
 import { isImportable, itemText, photoUrls } from './photos'
 import { vkTextToLexical, vkTitleFrom } from './toLexical'
@@ -141,24 +142,26 @@ export async function uploadPhoto(
   onProblem?: (message: string) => void,
 ): Promise<number | null> {
   try {
-    // Фото качается с CDN ВК: соединение, которое отдало заголовки и замолчало,
-    // без дедлайна держало бы прогон до умолчания undici (пять минут на попытку).
-    const res = await fetch(url, { signal: AbortSignal.timeout(PHOTO_TIMEOUT_MS) })
-    if (!res.ok) {
-      onProblem?.(`фото ${url}: HTTP ${res.status}`)
+    // Адрес приходит от отправителя, поэтому скачивание идёт через
+    // safeImageFetch: адрес резолвится и отбрасывается, если ведёт внутрь сети;
+    // переадресации запрещены; размер ограничен. До 02.10 здесь был голый
+    // `fetch` с проверкой схемы — этого хватало, чтобы отправитель заставил
+    // приложение ходить на внутренние адреса общей машины (аудит #057, SSRF).
+    const got = await fetchImageBytes(url, { timeoutMs: PHOTO_TIMEOUT_MS })
+    if (!got.ok) {
+      onProblem?.(`фото ${url}: ${got.reason}`)
       return null
     }
-    const buffer = Buffer.from(await res.arrayBuffer())
 
     const doc = await payload.create({
       collection: 'media',
       context: { disableRevalidate: true },
       data: { alt },
       file: {
-        data: buffer,
+        data: got.buffer,
         name: photoFileName(url),
-        mimetype: res.headers.get('content-type') || 'image/jpeg',
-        size: buffer.length,
+        mimetype: got.mimetype,
+        size: got.buffer.length,
       },
     })
     return doc.id as number

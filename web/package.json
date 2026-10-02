@@ -27,6 +27,7 @@
     "@payloadcms/next": "3.90.1",
     "@payloadcms/richtext-lexical": "3.90.1",
     "graphql": "^16.8.2",
+    "ipaddr.js": "2.2.0",
     "next": "15.5.25",
     "payload": "3.90.1",
     "react": "19.2.1",
