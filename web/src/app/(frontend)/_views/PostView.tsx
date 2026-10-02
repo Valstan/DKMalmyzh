@@ -8,6 +8,7 @@ import { canonicalOf, SITE_NAME } from '../../../lib/site'
 import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { formatPostDate } from '../../../lib/format'
+import { lexicalText, postDescription } from '../../../lib/posts/excerpt'
 import { SectionTheme, themeOf } from '../components/SectionTheme'
 
 type MediaDoc = { url?: string | null; alt?: string | null; width?: number | null; height?: number | null }
@@ -23,6 +24,14 @@ type PostDoc = {
   gallery?: GalleryItem[] | null
   videos?: VideoItem[] | null
   institution?: unknown
+}
+
+// Имя дома культуры для описания страницы. Связь приходит объектом (depth: 1);
+// у записи без дома остаётся null — тогда описание построится по заголовку.
+function institutionTitleOf(institution: unknown): string | null {
+  if (!institution || typeof institution !== 'object') return null
+  const title = (institution as { title?: unknown }).title
+  return typeof title === 'string' && title.trim() ? title : null
 }
 
 // Видео записи: mp4 — нативный плеер, плеер ВК (video_ext.php) — кадр, прочее —
@@ -71,10 +80,20 @@ export async function postMeta(slug: string): Promise<Metadata> {
   try {
     const post = await getPost(slug)
     if (!post) return {}
+    const canonical = canonicalOf(`/news/${slug}`)
+    const title = post.title || SITE_NAME
+    // Описание строим по тексту записи: до этого все новости отдавали ОДИН
+    // description из layout, и поисковик показывал одинаковый сниппет.
+    const description = postDescription({
+      text: lexicalText(post.content),
+      title: post.title,
+      institutionTitle: institutionTitleOf(post.institution),
+    })
     return {
       title: post.title || SITE_NAME,
-      alternates: { canonical: canonicalOf(`/news/${slug}`) },
-      openGraph: { url: canonicalOf(`/news/${slug}`), title: post.title || SITE_NAME },
+      description,
+      alternates: { canonical },
+      openGraph: { url: canonical, title, description, type: 'article' },
     }
   } catch {
     return {}

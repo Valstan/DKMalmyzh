@@ -1,5 +1,6 @@
 import type { Payload } from 'payload'
 
+import { lexicalText } from './excerpt'
 import { safeRevalidatePath } from '../safeRevalidate'
 
 // Афиши и пустые записи без текста (заказ владельца 02.10).
@@ -88,22 +89,9 @@ export type EmptyTitleSummary = {
   messages: string[]
 }
 
-// Близнец разбора lexical из `dedupe.ts`: в сырых документах поля `content`
-// нет (текст лежит в lexical), считать undecidable/пустоту надо по разобранному.
-const lexicalText = (data: unknown): string => {
-  const out: string[] = []
-  const walk = (node: unknown): void => {
-    if (!node || typeof node !== 'object') return
-    const row = node as Record<string, unknown>
-    if (row['type'] === 'text' && typeof row['text'] === 'string') out.push(row['text'])
-    const children = row['children']
-    if (Array.isArray(children)) children.forEach(walk)
-    if (row['root']) walk(row['root'])
-  }
-  walk(data)
-  return out.join('\n')
-}
-
+// Разбор текста записи в плоскую строку — общий с метаданными новости
+// (`src/lib/posts/excerpt.ts`). Здесь переиспользуется, чтобы не держать
+// третью копию обхода lexical: до этого их было две (здесь и в `dedupe.ts`).
 type PreparedDoc = EmptyTitleDoc & { status?: string | null; institutionId?: number | null }
 
 export async function retitlePosters(
