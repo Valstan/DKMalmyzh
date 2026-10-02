@@ -74,9 +74,16 @@ jobs:
           fi
           # Хостнейм и строку подключения сюда не печатаем: лог прогона публичный (D-038).
           echo "ssh: ok"
+          # Пароль не идёт в аргументы psql (/proc читает любой локальный
+          # пользователь общей машины). Строка целиком кладётся во временный файл
+          # прав 600, psql получает имя сервиса. Разбирать строку на PGHOST/
+          # PGPASSWORD не будем: psql сам понимает процентное кодирование, а
+          # наша нарезка — нет, и ошибка здесь уехала бы в миграцию на проде.
+          PGSVC=$(mktemp); trap 'rm -f "$PGSVC"' EXIT; umask 077
+          printf '[prod]\ndbname=%s\n' "$DB" > "$PGSVC"; export PGSERVICEFILE="$PGSVC"
           # Отдельной командой, а не внутри echo: в подстановке ошибка psql тонет,
           # и шаг рапортует «ок» на неработающем подключении.
-          REG=$(psql "$DB" -tAc "SELECT to_regclass('public.payload_migrations');")
+          REG=$(psql service=prod -tAc "SELECT to_regclass('public.payload_migrations');")
           echo "payload_migrations table: ${REG:-нет}"
           REMOTE
 
@@ -95,12 +102,14 @@ jobs:
             exit 1
           fi
           echo "Применяю $NAME ..."
-          psql "$DB" -v ON_ERROR_STOP=1 -f /tmp/mig.sql
+          PGSVC=$(mktemp); trap 'rm -f "$PGSVC"' EXIT; umask 077
+          printf '[prod]\ndbname=%s\n' "$DB" > "$PGSVC"; export PGSERVICEFILE="$PGSVC"
+          psql service=prod -v ON_ERROR_STOP=1 -f /tmp/mig.sql
           # запись в реестр — best-effort и идемпотентно.
-          psql "$DB" -c "INSERT INTO payload_migrations (name, batch) SELECT '$NAME', (SELECT COALESCE(MAX(batch),0)+1 FROM payload_migrations) WHERE NOT EXISTS (SELECT 1 FROM payload_migrations WHERE name='$NAME');" \
+          psql service=prod -c "INSERT INTO payload_migrations (name, batch) SELECT '$NAME', (SELECT COALESCE(MAX(batch),0)+1 FROM payload_migrations) WHERE NOT EXISTS (SELECT 1 FROM payload_migrations WHERE name='$NAME');" \
             && echo "записано в payload_migrations" || echo "payload_migrations нет — запись пропущена (колонка применена)"
           rm -f /tmp/mig.sql
           echo "verify: записей '$NAME' в payload_migrations (>=1 = в реестре; 0 — реестра ещё нет):"
-          psql "$DB" -tAc "SELECT count(*) FROM payload_migrations WHERE name = '$NAME';" 2>/dev/null \
+          psql service=prod -tAc "SELECT count(*) FROM payload_migrations WHERE name = '$NAME';" 2>/dev/null \
             || echo "0 (payload_migrations недоступна — колонка применена, реестр досоздаст payload migrate)"
           REMOTE

@@ -1,6 +1,7 @@
 import config from '@payload-config'
 import { getPayload } from 'payload'
 
+import { _internal_netProbe } from '../src/lib/net/safeImageFetch'
 import type { VkWallItem } from '../src/lib/vk/api'
 import { importWallItems } from '../src/lib/vk/import'
 import { runVkSync } from '../src/lib/vk/sync'
@@ -72,6 +73,11 @@ const main = async () => {
       status: 200,
       headers: { 'content-type': 'image/png' },
     })) as typeof globalThis.fetch
+  // Резолв имён подменяется тем же приёмом: адреса здесь фиктивные
+  // (`example.invalid`) и не разрешаются, а скачивалка фото (аудит #057) режет
+  // адрес по резолву — иначе проверка валилась бы на собственной заглушке.
+  const realLookup = _internal_netProbe.lookup
+  _internal_netProbe.lookup = async () => ['93.184.216.34']
 
   try {
     const institution = await payload.create({
@@ -164,6 +170,7 @@ const main = async () => {
     }
   } finally {
     globalThis.fetch = realFetch
+    _internal_netProbe.lookup = realLookup
   }
 
   await checkMultiSource(payload, problems)
@@ -219,6 +226,9 @@ async function checkMultiSource(
     }
     return json({ ok: true, response: { count: walls[owner]?.length ?? 0, items: walls[owner] ?? [] } })
   }) as typeof globalThis.fetch
+  // См. подмену резолва выше: фото и здесь едут по фиктивным адресам.
+  const realLookup = _internal_netProbe.lookup
+  _internal_netProbe.lookup = async () => ['93.184.216.34']
 
   try {
     await payload.create({
@@ -283,6 +293,7 @@ async function checkMultiSource(
       problems.push(`у учреждения ${posts.totalDocs} записей, ожидалось 2 из двух источников`)
   } finally {
     globalThis.fetch = realFetch
+    _internal_netProbe.lookup = realLookup
   }
 }
 
