@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest'
 
 import {
   filterInstitutions,
+  filterRows,
   institutionDisplayName,
   institutionEmoji,
   institutionSearchText,
   isVillageHouse,
   matchesInstitutionQuery,
+  matchesRow,
   stripSettlementPrefix,
+  toDirectoryRows,
   type DirectoryItem,
 } from './directory'
 
@@ -175,5 +178,51 @@ describe('поиск по учреждениям', () => {
     expect(text).toContain('калинино')
     expect(text).toContain('с. калинино')
     expect(text).toContain('kalinino')
+  })
+})
+
+// Готовые строки для показа: именно они приезжают в браузер. Здесь важно другое,
+// чем в юнитах выше, — что в строке поиска НЕТ регистра и что подпись собрана
+// верно. Регекс в `search` означал бы, что поиск перестал находить по буквам
+// «КИТЯК» — и заметить это можно было бы только руками на живом сайте.
+describe('готовая строка для показа', () => {
+  const rows = toDirectoryRows(
+    [house(), club(), house({ id: '9', slug: 'rckd', title: 'Малмыжский районный Центр культуры и досуга', shortTitle: 'РЦКД Малмыж', settlement: 'г. Малмыж', isHead: true, website: 'https://xn--d1amdcjpngc5fh.xn--80adkdyec4j.xn--p1ai/' })],
+    (ref) => (ref.website ? 'домкультуры.вмалмыже.рф' : ''),
+  )
+
+  it('подпись и картинка считаются на сервере, до браузера', () => {
+    expect(rows[0].name).toBe('Калинино')
+    expect(rows[0].emoji).toBe('🎭')
+    expect(rows[0].external).toBe(false)
+    expect(rows[0].meta).toContain('с. Калинино')
+  })
+
+  it('головное учреждение помечено и ведёт наружу', () => {
+    const head = rows[2]
+    expect(head.external).toBe(true)
+    expect(head.meta).toContain('головное учреждение')
+    expect(head.name).toBe('РЦКД Малмыж')
+  })
+
+  it('строка поиска строчная — иначе поиск по капс молча перестал бы находить', () => {
+    for (const row of rows) {
+      expect(row.search).toBe(row.search.toLowerCase())
+    }
+    expect(filterRows(rows, 'КИТЯК')).toEqual([])
+    expect(filterRows(rows, 'китяк')).toEqual([])
+  })
+
+  it('поиск по готовой строке совпадает с поиском по учреждению', () => {
+    const q = 'калинино'
+    const byRow = rows.filter((r) => matchesRow(r, q)).map((r) => r.id)
+    const byInstitution = filterInstitutions([house(), club(), rows[2] as never], q)
+    expect(byRow).toHaveLength(1)
+    expect(byInstitution).toHaveLength(1)
+  })
+
+  it('пустой запрос отдаёт всё, в исходном порядке', () => {
+    expect(filterRows(rows, '')).toBe(rows)
+    expect(filterRows(rows, '  ')).toBe(rows)
   })
 })

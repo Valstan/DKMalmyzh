@@ -2,16 +2,18 @@ import config from '@payload-config'
 import { getPayload } from 'payload'
 
 import { withRetry } from '../../../lib/withRetry'
-import type { DirectoryItem } from '../../../lib/institutions/directory'
+import { institutionDomainName } from '../../../lib/institutionsDomain'
+import { toDirectoryRows, type DirectoryItem } from '../../../lib/institutions/directory'
 import { InstitutionDirectory } from '../_views/InstitutionDirectory'
 
 // Список учреждений района. Головное — первым, дальше по алфавиту: районный ДК
 // логично видеть в начале, а сельские искать по названию.
 //
-// Всё, что нужно для показа — подпись, населённый пункт, картинка — считается на
-// сервере (`lib/institutions/directory.ts`), чтобы правило «для дома культуры
-// показываем село, для школы — полное название» не зависело от того, отдался ли
-// браузер JSON с ограничениями доступа.
+// Подпись, картинку и читаемое имя домена считаем ЗДЕСЬ и отдаём компоненту
+// готовыми строками: имя домена требует `node:url`, а он не собирается в
+// браузерный бандл. Правило «для дома культуры показываем село, для школы — полное
+// название» тоже живёт на сервере — тогда оно не зависит от того, какие поля
+// долетели до браузера.
 async function getInstitutions(): Promise<DirectoryItem[]> {
   try {
     return await withRetry(async () => {
@@ -32,6 +34,7 @@ async function getInstitutions(): Promise<DirectoryItem[]> {
 
 export async function InstitutionsView() {
   const institutions = await getInstitutions()
+  const rows = toDirectoryRows(institutions, institutionDomainName)
 
   return (
     <section>
@@ -40,7 +43,7 @@ export async function InstitutionsView() {
         Начните вводить название — список отфильтруется по совпадению в любом месте названия.
         Головое учреждение — Малмыжский районный Центр культуры и досуга.
       </p>
-      <InstitutionDirectory institutions={institutions} />
+      <InstitutionDirectory rows={rows} />
     </section>
   )
 }

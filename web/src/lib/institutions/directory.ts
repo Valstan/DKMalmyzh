@@ -1,4 +1,4 @@
-import type { InstitutionRef } from '../institutions'
+import { institutionUrl, type InstitutionRef } from '../institutions'
 
 // Как показывать учреждение в списке и какую картинку ставить.
 //
@@ -137,4 +137,68 @@ export function filterInstitutions<T extends DirectoryItem>(items: T[], query: s
   const q = query.trim()
   if (!q) return items
   return items.filter((item) => matchesInstitutionQuery(item, q))
+}
+
+// ─── Готовая строка для показа ───────────────────────────────────────────────
+//
+// Всё, что нельзя считать в браузере, считается на сервере, и на клиент уходит
+// уже готовая строка. Причина конкретная: читаемое имя личного домена требует
+// `node:url`, а он в браузерный бандл Next не собирается. Обойти это можно было
+// бы двумя способами — посчитать домен в компоненте (сборка падает) или дублировать
+// фильтр в компоненте (расходится с тем, что тут). Поэтому строка собирается
+// здесь, а компонент только показывает и отбирает по готовой строке `search`.
+// Один фильтр на оба места.
+
+export type DirectoryRow = {
+  id: string | number
+  name: string
+  fullName: string
+  emoji: string
+  url: string
+  external: boolean
+  /** Подпись под названием: «с. Калинино», «головное учреждение», домен. */
+  meta: string
+  description?: string | null
+  /** Строка поиска стро��ыми строчными — готовая, чтобы не пересобирать в браузере. */
+  search: string
+}
+
+/** Учреждение → строка для показа. `domainName` внедряется: он тянет node:url. */
+export function toDirectoryRows(
+  institutions: DirectoryItem[],
+  domainName: (ref: DirectoryItem) => string,
+): DirectoryRow[] {
+  return institutions.map((institution) => {
+    const url = institutionUrl(institution)
+    const domain = domainName(institution)
+    const meta = [
+      institution.isHead ? 'головное учреждение' : (institution.settlement ?? '').trim(),
+      domain ? `· ${domain}` : '',
+    ]
+      .filter(Boolean)
+      .join(' ')
+
+    return {
+      id: institution.id,
+      name: institutionDisplayName(institution),
+      fullName: institutionFullName(institution),
+      emoji: institutionEmoji(institution),
+      url,
+      external: /^https?:\/\//i.test(url),
+      meta,
+      description: institution.description ?? null,
+      search: institutionSearchText(institution),
+    }
+  })
+}
+
+/** Совпадение по готовой строке — та же семантика, что у `matchesInstitutionQuery`. */
+export function matchesRow(row: DirectoryRow, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  return !q || row.search.includes(q)
+}
+
+export function filterRows(rows: DirectoryRow[], query: string): DirectoryRow[] {
+  const q = query.trim()
+  return q ? rows.filter((row) => matchesRow(row, q)) : rows
 }
