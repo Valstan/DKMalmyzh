@@ -1,5 +1,7 @@
 import type { Payload } from 'payload'
 
+import { lexicalText } from './excerpt'
+
 // Чистка дублей новостей после двойных прогонов импорта (заказ владельца
 // 30.09).
 //
@@ -184,19 +186,9 @@ export async function dedupePosts(
     slugs.set(doc.id, { slug: doc.slug ?? null, title: doc.title ?? null })
   }
 
-  const lexicalText = (data: unknown): string => {
-    const out: string[] = []
-    const walk = (node: unknown): void => {
-      if (!node || typeof node !== 'object') return
-      const row = node as Record<string, unknown>
-      if (row['type'] === 'text' && typeof row['text'] === 'string') out.push(row['text'])
-      const children = row['children']
-      if (Array.isArray(children)) children.forEach(walk)
-      if (row['root']) walk(row['root'])
-    }
-    walk(data)
-    return out.join('\n')
-  }
+  // Текст записей разбирается общей функцией `lexicalText` из `./excerpt`:
+  // в сырых документах поля `content` нет вовсе, поэтому подготовленные записи
+  // строятся обходом lexical, а не чтением поля.
 
   const prepared: DedupeDoc[] = (all.docs as unknown as Record<string, unknown>[]).map((row) => {
     const institutionId = typeof row['institution'] === 'number' ? row['institution'] : null
