@@ -1,10 +1,11 @@
 import type { Payload } from 'payload'
 
+import { normalizeNav, REQUIRED_NAV, sameHref, type NavItem } from './nav'
 import { SITE_NAME } from '../site'
 
 // Пункты меню в шапке: глобал `header`. На проде он создан, но список пунктов
-// пустой — тогда страница рисует кодовый запасной список («Новости», «Дома
-// культуры»), и пункт «Праздники района» в меню не появляется.
+// может быть неполным — тогда недостающее дописывает эта операция, а страница
+// показывает обязательные пункты и без неё (`nav.ts`).
 //
 // Операция НЕ переписывает шапку, а ДОБАВЛЯЕТ недостающее: подписи и порядок,
 // которые владелец поправил руками, остаются как есть. Иначе служебный прогон
@@ -12,33 +13,13 @@ import { SITE_NAME } from '../site'
 //
 // Идемпотентна: повторный прогон ничего не меняет и честно пишет «добавлено 0».
 
-export type NavItem = { label: string; href: string }
-
-export const REQUIRED_NAV: NavItem[] = [
-  { label: 'Новости', href: '/news' },
-  { label: 'Дома культуры', href: '/dk' },
-  { label: 'Праздники района', href: '/prazdniki' },
-]
+export type { NavItem }
+export { REQUIRED_NAV }
 
 export type NavMerge = { nav: NavItem[]; added: NavItem[] }
 
-// Адреса сравниваются без хвостового слэша и в нижнем регистре: `/dk` и `/dk/`
-// — один и тот же пункт, иначе прогон дописал бы дубль.
-const sameHref = (a: unknown, b: string): boolean =>
-  typeof a === 'string' && a.trim().replace(/\/+$/, '').toLowerCase() === b.replace(/\/+$/, '').toLowerCase()
-
 export function ensureNavItems(existing: unknown, required: NavItem[] = REQUIRED_NAV): NavMerge {
-  const current: NavItem[] = Array.isArray(existing)
-    ? existing
-        .map((item) => {
-          const row = (item ?? {}) as Record<string, unknown>
-          const label = typeof row['label'] === 'string' ? row['label'].trim() : ''
-          const href = typeof row['href'] === 'string' ? row['href'].trim() : ''
-          return { label, href }
-        })
-        .filter((item) => item.label && item.href)
-    : []
-
+  const current = normalizeNav(existing)
   const added = required.filter((item) => !current.some((row) => sameHref(row.href, item.href)))
   return { nav: [...current, ...added], added }
 }
