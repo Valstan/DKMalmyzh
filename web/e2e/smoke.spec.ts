@@ -175,35 +175,43 @@ test.describe('публичные страницы открываются в б�
 
   // Список домов культуры: заказчик просил три вещи — картинку у каждого учреждения,
 // короткое имя вместо родительного падежа и поиск по совпадению в любом месте
-// названия. Проверяется всё поведением, а не разметкой: тест, прибитый к
-// конкретному селу, сломается вместе с любым переименованием.
+// названия.
+//
+// Проверка НЕ прибита к «Китяку» и вообще к конкретным селам: в гейтовой базе их
+// нет, там одно засеянное учреждение. Запрос строится из его собственного
+// названия, а «в любом месте» проверяется фрагментом из середины строки.
 test('дома культуры: картинка, короткое имя и поиск по совпадению', async ({ page }) => {
   await withoutPageErrors(page, async () => {
     await page.goto('/dk')
 
     const cards = page.locator('.dk-item')
     const total = await cards.count()
-    expect(total, 'список учреждений пуст').toBeGreaterThan(1)
+    expect(total, 'список учреждений пуст').toBeGreaterThan(0)
 
     // Картинка у каждого, и это не пустая строка.
     const emojis = await page.locator('.dk-item__emoji').allTextContents()
     expect(emojis).toHaveLength(total)
     expect(emojis.every((e) => e.trim().length > 0), 'учреждение без картинки').toBe(true)
 
-    // Короткое имя: у карточки есть предписанное название и населённый пункт, и
-    // подпись не повторяет «Дом культуры …» — ради этого правила и затевалось.
+    // Короткая подпись не повторяет «Дом культуры …» — ради этого правила и
+    // затевалось; а доступное имя ссылки остаётся полным (иначе озвучка в списке
+    // из тридцати одного пункта читала бы «Калинино» без всякого смысла).
     const firstCard = cards.first()
     await expect(firstCard.locator('.post-list__meta')).not.toContainText('Дом культуры')
 
-    // Поиск: совпадение НЕ в начале названия, а в середине.
     const search = page.locator('.dk-search__input')
     await expect(search).toBeVisible()
-    await search.fill('китяк')
-    const found = await cards.count()
-    expect(found, 'поиск ничего не нашёл').toBeGreaterThan(0)
-    expect(found, 'поиск ничего не отфильтровал').toBeLessThan(total)
-    await expect(page.locator('.dk-item__title')).toContainText(/Китяк/i)
     await expect(page.locator('.dk-search__status')).toContainText(`из ${total}`)
+
+    // «В любом месте, а не в начале»: фрагмент из середины названия.
+    const middle = CI_INSTITUTION_TITLE_UPDATED.slice(3, -1)
+    await search.fill(middle)
+    expect(await cards.count(), 'поиск по середине названия ничего не нашёл').toBe(1)
+    await expect(page.locator('.dk-search__status')).toContainText(`Найдено 1 из ${total}`)
+
+    // Регистр не важен.
+    await search.fill(middle.toUpperCase())
+    expect(await cards.count()).toBe(1)
 
     // Список пересобирается на том же адресе, без перезагрузки.
     await search.fill('совершенно-нет-такого')

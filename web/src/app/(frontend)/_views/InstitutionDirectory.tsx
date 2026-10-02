@@ -37,11 +37,16 @@ function InstitutionCard({ row }: { row: DirectoryRow }) {
           row.external ? (
             // Внешняя ссылка — обычным <a>: роутер Next перехватывает только
             // внутренние переходы.
-            <a href={row.url} title={row.fullName}>
+            //
+            // `aria-label` — не украшение. Видимая подпись сокращена до имени села
+            // («Калинино»), и без метки озвучка читала бы именно её: в списке из
+            // тридцати одного пункта «Калинино» ничем не отличается от соседнего
+            // «Савали» по смыслу. Имя ссылки — полное, как и было.
+            <a href={row.url} title={row.fullName} aria-label={row.fullName}>
               {title}
             </a>
           ) : (
-            <Link href={row.url} title={row.fullName}>
+            <Link href={row.url} title={row.fullName} aria-label={row.fullName}>
               {title}
             </Link>
           )
