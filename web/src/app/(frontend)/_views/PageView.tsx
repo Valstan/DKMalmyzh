@@ -27,7 +27,10 @@ async function getPage(slug: string): Promise<PageDoc | null> {
 
 export async function pageMeta(slug: string): Promise<Metadata> {
   try {
-    const page = await getPage(slug)
+    // Slug декодируется и здесь: `params.slug` приходит percent-encoded, а
+    // документ ищется по кириллическому значению (та же грабля, что в
+    // `postMeta` — см. комментарий там).
+    const page = await getPage(decodeURIComponent(slug))
     if (!page) return {}
     return {
       title: page.title || SITE_NAME,

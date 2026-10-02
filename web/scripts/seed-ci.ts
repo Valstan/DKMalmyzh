@@ -14,6 +14,9 @@ import {
   CI_DRAFT_INSTITUTION_TITLE,
   CI_DRAFT_POST_SLUG,
   CI_DRAFT_POST_TITLE,
+  CI_CYRILLIC_POST_SLUG,
+  CI_CYRILLIC_POST_TEXT,
+  CI_CYRILLIC_POST_TITLE,
   CI_POST_SLUG,
   CI_POST_TITLE,
   CI_POST_TITLE_UPDATED,
@@ -37,6 +40,23 @@ import {
 // не видит (G223 — состояние берётся из `data._status`, а не из `draft: false`).
 
 const ctx = { disableRevalidate: true }
+
+const lexical = (text: string) => ({
+  root: {
+    type: 'root',
+    format: '' as const,
+    indent: 0,
+    version: 1,
+    direction: 'ltr' as const,
+    children: [
+      {
+        type: 'paragraph',
+        version: 1,
+        children: [{ type: 'text', version: 1, text }],
+      },
+    ],
+  },
+})
 
 const main = async () => {
   const payload = await getPayload({ config })
@@ -162,8 +182,28 @@ const main = async () => {
   })
 
   console.log(
-    `шаг 7/7 — черновики для негативных проверок: ок (учреждение ${draftInstitution.id}, новость ${draftPost.id})`,
+    `шаг 7/8 — черновики для негативных проверок: ок (учреждение ${draftInstitution.id}, новость ${draftPost.id})`,
   )
+
+  // Кириллический адрес: проверяет, что метаданные декодируют `params.slug`.
+  // Текст кладём непустой — e2e сверяет, что description пришёл ИЗ ЗАПИСИ,
+  // а не из общего layout (иначе тест зелен и при сломанном декодировании).
+  const cyrillicPost = await payload.create({
+    collection: 'posts',
+    context: ctx,
+    data: {
+      title: CI_CYRILLIC_POST_TITLE,
+      slug: CI_CYRILLIC_POST_SLUG,
+      date: '2026-01-02T00:00:00.000Z',
+      institution: institution.id,
+      type: 'news',
+      source: 'manual',
+      content: lexical(CI_CYRILLIC_POST_TEXT),
+      _status: 'published',
+    },
+  })
+
+  console.log(`шаг 8/8 — новость с кириллическим адресом: ок (id ${cyrillicPost.id})`)
 
   // Проверяем результат фактом, а не отсутствием исключения: сид, который
   // «отработал» и ничего не создал, оставил бы пререндер таким же пустым.
@@ -212,6 +252,8 @@ const main = async () => {
   // неотличимый от поломки роутера.
   if (page.slug !== CI_PAGE_SLUG) problems.push(`slug страницы «${page.slug}», ожидался «${CI_PAGE_SLUG}»`)
   if (updated.slug !== CI_POST_SLUG) problems.push(`slug новости «${updated.slug}», ожидался «${CI_POST_SLUG}»`)
+  if (cyrillicPost.slug !== CI_CYRILLIC_POST_SLUG)
+    problems.push(`slug кириллической новости «${cyrillicPost.slug}», ожидался «${CI_CYRILLIC_POST_SLUG}»`)
 
   if (problems.length > 0) {
     console.error('::error::сид отработал, но результат не тот:')

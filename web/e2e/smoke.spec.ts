@@ -2,6 +2,9 @@ import type { Page } from '@playwright/test'
 import { expect, test } from '@playwright/test'
 
 import {
+  CI_CYRILLIC_POST_SLUG,
+  CI_CYRILLIC_POST_TEXT,
+  CI_CYRILLIC_POST_TITLE,
   CI_DRAFT_INSTITUTION_SLUG,
   CI_DRAFT_INSTITUTION_TITLE,
   CI_DRAFT_POST_SLUG,
@@ -162,6 +165,31 @@ test.describe('публичные страницы открываются в б�
       const pathname = new URL(canonical as string).pathname.replace(/\/$/, '') || '/'
       expect(pathname, `canonical на ${path}`).toBe(path === '/' ? '/' : path)
     }
+  })
+
+  // Метаданные новости с КИРИЛЛИЧЕСКИМ адресом — регрессионная защита.
+  //
+  // 94% новостей на проде (784 из 835) адресованы кириллицей, а `params.slug`
+  // приходит percent-encoded. Пока `postMeta` не декодировал его, документ не
+  // находился, `catch` глотал это молча — и страница отдавала title/description
+  // из layout, БЕЗ canonical вовсе. Баг жил незамеченным именно потому, что
+  // фикстуры в гейте были ASCII: тест «canonical на месте» на них зеленел.
+  //
+  // Проверяем три вещи, каждая из которых падала по отдельности: canonical
+  // указывает на саму страницу, title из записи (а не портальный), description
+  // пришёл из ТЕКСТА записи (не из layout).
+  test('новость с кириллическим адресом имеет свои метаданные и canonical', async ({ page }) => {
+    const res = await page.goto(`/news/${CI_CYRILLIC_POST_SLUG}`)
+    expect(res?.status(), 'кириллическая новость не открылась').toBe(200)
+
+    await expect(page).toHaveTitle(new RegExp(CI_CYRILLIC_POST_TITLE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+
+    const description = await page.locator('meta[name="description"]').getAttribute('content')
+    expect(description, 'description взят не из текста записи').toContain(CI_CYRILLIC_POST_TEXT)
+
+    const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
+    expect(canonical, 'нет canonical у кириллической новости').not.toBeNull()
+    expect(decodeURIComponent(new URL(canonical as string).pathname)).toBe(`/news/${CI_CYRILLIC_POST_SLUG}`)
   })
 
   // Негативные проверки. Позитивных мало: они одинаково зелены и когда фильтр
