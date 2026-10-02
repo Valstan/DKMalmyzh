@@ -85,7 +85,7 @@ export async function postMeta(slug: string): Promise<Metadata> {
     // ВООБЩЕ не имели canonical — робот видел дубли, а соцсеть — карточку
     // главной. Тело страницы страдало меньше (там decode был), поэтому баг
     // жил незамеченным.
-    const post = await getPost(decodeURIComponent(slug))
+    const post = await getPost(slug)
     if (!post) return {}
     const canonical = canonicalOf(`/news/${slug}`)
     const title = post.title || SITE_NAME
