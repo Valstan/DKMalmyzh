@@ -7,10 +7,14 @@ import { InstitutionsView } from '../_views/InstitutionsView'
 export const revalidate = 60
 
 export const metadata: Metadata = {
-  title: 'Дома культуры района',
-  description: 'Учреждения культуры Малмыжского района: разделы, контакты, новости и афиши.',
+  // Тот же заголовок, что и h1 на странице. Расхождение выглядит мелочью, пока
+  // раздел назовут «дома культуры»; как только в списке появятся ДШИ и музей
+  // (а правило их уже учитывает), «Дома культуры района» станет просто неверным.
+  title: 'Дома культуры и учреждения района',
+  description:
+    'Учреждения культуры Малмыжского района: дома культуры, школа искусств, музей — разделы, контакты, новости и афиши. Поиск по названию.',
   alternates: { canonical: canonicalOf('/dk') },
-  openGraph: openGraphWithImage({ path: '/dk', title: 'Дома культуры района' }),
+  openGraph: openGraphWithImage({ path: '/dk', title: 'Дома культуры и учреждения района' }),
 }
 
 export default function InstitutionsPage() {
