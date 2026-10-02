@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  EMOJI_BY_SLUG,
   filterInstitutions,
   filterRows,
   institutionDisplayName,
@@ -119,7 +120,9 @@ describe('institutionDisplayName', () => {
     })
     expect(institutionDisplayName(dshi)).toBe('Детская школа искусств Малмыжа')
     expect(institutionDisplayName(muzej)).toBe('Краеведческий музей Малмыжа')
-    expect(institutionEmoji(dshi)).toBe('🎹')
+    // Свои значки — из карты по адресу, а не из правила по типу: у `dshi` палитра
+    // (как просил Сарафан), а не пианино из запасного правила.
+    expect(institutionEmoji(dshi)).toBe('🎨')
     expect(institutionEmoji(muzej)).toBe('🏺')
   })
 
@@ -139,16 +142,41 @@ describe('institutionDisplayName', () => {
 })
 
 describe('institutionEmoji', () => {
-  it('школа искусств, музей, библиотека и центр получают свои', () => {
-    expect(institutionEmoji(house({ title: 'Малмыжская детская школа искусств' }))).toBe('🎹')
-    expect(institutionEmoji(house({ title: 'Малмыжский краеведческий музей' }))).toBe('🏺')
-    expect(institutionEmoji(house({ title: 'Районная библиотека' }))).toBe('📚')
-    expect(institutionEmoji(house({ title: 'Малмыжский районный Центр культуры и досуга' }))).toBe('🎪')
+  it('карта покрывает все 33 учреждения, и все значки разные', () => {
+    // Заказ владельца 03.10: у каждого свой эмодзи. Проверка следит за двумя
+    // вещами, которые легко сломать молча: забыли добавить новое учреждение
+    // (стало 32 вместо 33) и назначили двум один значок (визуально снова «рябит»).
+    const slugs = Object.keys(EMOJI_BY_SLUG)
+    expect(slugs).toHaveLength(33)
+    expect(new Set(slugs).size).toBe(33)
+    expect(new Set(Object.values(EMOJI_BY_SLUG)).size).toBe(33)
   })
 
-  it('сельские дома культуры получают театр', () => {
-    expect(institutionEmoji(house())).toBe('🎭')
-    expect(institutionEmoji(club())).toBe('🎭')
+  it('якорные привязки: головной, школа, музей — как договаривались', () => {
+    expect(institutionEmoji(house({ slug: 'rckd' }))).toBe('🎪')
+    expect(institutionEmoji(house({ slug: 'dshi' }))).toBe('🎨')
+    expect(institutionEmoji(house({ slug: 'kraevedcheskiy-muzej' }))).toBe('🏺')
+  })
+
+  it('пары-родня: три Китяка — морская семья, две Гоньбы — лошадиная', () => {
+    expect(institutionEmoji(house({ slug: 'bolshoy-kityak' }))).toBe('🐋')
+    expect(institutionEmoji(house({ slug: 'malyy-kityak' }))).toBe('🐳')
+    expect(institutionEmoji(house({ slug: 'por-kityak' }))).toBe('🐬')
+    expect(institutionEmoji(house({ slug: 'gonba' }))).toBe('🏇')
+    expect(institutionEmoji(house({ slug: 'tat-verh-gonba' }))).toBe('🐎')
+  })
+
+  it('по названию села: калина, канал, пастух, плоты, Преображение', () => {
+    expect(institutionEmoji(house({ slug: 'kalinino' }))).toBe('🍒')
+    expect(institutionEmoji(house({ slug: 'aryk' }))).toBe('💧')
+    expect(institutionEmoji(house({ slug: 'bolshaya-shabanka' }))).toBe('🐑')
+    expect(institutionEmoji(house({ slug: 'plotbishche' }))).toBe('🪵')
+    expect(institutionEmoji(house({ slug: 'preobrazhenka' }))).toBe('✨')
+  })
+
+  it('правило по типу живо для будущих учреждений, которых в карте нет', () => {
+    expect(institutionEmoji(house({ slug: 'buduschaya-shkola', title: 'Детская школа искусств' }))).toBe('🎹')
+    expect(institutionEmoji(house({ slug: 'buduschaya-biblioteka', title: 'Районная библиотека' }))).toBe('📚')
   })
 
   it('неизвестное учреждение не остаётся без картинки', () => {
@@ -224,9 +252,20 @@ describe('готовая строка для показа', () => {
 
   it('подпись и картинка считаются на сервере, до браузера', () => {
     expect(rows[0].name).toBe('Калинино')
-    expect(rows[0].emoji).toBe('🎭')
+    expect(rows[0].emoji).toBe('🍒')
     expect(rows[0].external).toBe(false)
-    expect(rows[0].meta).toContain('с. Калинино')
+    // Поселения в подписи нет (компакт 3→2, заказ 03.10): имя села уже стоит в
+    // заголовке, строка «с. Калинино» под ним была повтором. Само поселение
+    // из карточки не исчезло — оно в строке поиска и в подсказке ссылки.
+    expect(rows[0].meta).toBe('')
+  })
+
+  it('подпись с доменом — только домен, без поселения', () => {
+    const [withDomain] = toDirectoryRows(
+      [house({ website: 'https://xn----8sbksaibjtblz.xn--80adkdyec4j.xn--p1ai/' })],
+      () => 'сдк-калинино.вмалмыже.рф',
+    )
+    expect(withDomain.meta).toBe('сдк-калинино.вмалмыже.рф')
   })
 
   it('головное учреждение помечено и ведёт наружу', () => {

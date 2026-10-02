@@ -199,6 +199,19 @@ test('дома культуры: картинка, короткое имя и п
     const firstCard = cards.first()
     await expect(firstCard.locator('.post-list__meta')).not.toContainText('Дом культуры')
 
+    // Компакт (заказ 03.10): поселения в подписях нет — имя села уже стоит в
+    // заголовке, строка «с. …» под ним была повтором. Проверяем все подписи
+    // разом: ни одна не начинается с префикса населённого пункта.
+    const metas = await page.locator('.post-list__meta').allTextContents()
+    expect(
+      metas.every((m) => !/^[сдп]\.\s|пгт\.\s/i.test(m.trim())),
+      `поселение в подписи: ${JSON.stringify(metas.filter((m) => /^[сдп]\.\s|пгт\.\s/i.test(m.trim())))}`,
+    ).toBe(true)
+
+    // Картинки разные: общий театр на всех — это снова «рябит», ради чего всё
+    // и затевалось. Строгая уникальность — в юнитах; здесь хотя бы не-один.
+    expect(new Set(emojis.map((e) => e.trim())).size, 'у всех одна картинка').toBeGreaterThan(1)
+
     const search = page.locator('.dk-search__input')
     await expect(search).toBeVisible()
     // До ввода счётчик показывает общее число, после — «найдено X из Y».
