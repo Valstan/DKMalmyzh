@@ -6,7 +6,9 @@ import React from 'react'
 import './globals.css'
 import { SITE_DESC, SITE_NAME, SITE_URL } from '../../lib/site'
 import { withRetry } from '../../lib/withRetry'
+import { organizationJsonLd } from '../../lib/jsonLd'
 import { Analytics } from './components/Analytics'
+import { JsonLd } from './components/JsonLd'
 import type { ChromeContent, NavItem } from './components/SiteChrome'
 import { SiteChrome } from './components/SiteChrome'
 
@@ -34,7 +36,11 @@ export const metadata: Metadata = {
     siteName: SITE_NAME,
     locale: 'ru_RU',
     type: 'website',
+    // Общая обложка для страниц без своего кадра (главная, каталог, разделы
+    // без учреждения). Без неё ссылка разворачивается карточкой без картинки.
+    images: ['/og.png'],
   },
+  twitter: { card: 'summary_large_image' },
 }
 
 // Редактируемые тексты шапки/подвала (глобалы header/footer). Пусто/сбой
@@ -67,6 +73,10 @@ export default async function FrontendLayout({ children }: { children: React.Rea
   return (
     <html lang="ru">
       <body>
+        {/* Organization — один раз на весь портал: поисковик берёт отсюда
+            название, адрес и логотип, а страницы новостей ссылаются на неё
+            как на publisher. */}
+        <JsonLd data={organizationJsonLd()} />
         <SiteChrome chrome={chrome}>{children}</SiteChrome>
         <Analytics />
       </body>

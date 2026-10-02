@@ -9,15 +9,24 @@ import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { formatPostDate } from '../../../lib/format'
 import { lexicalText, postDescription } from '../../../lib/posts/excerpt'
+import { articleJsonLd, eventJsonLd } from '../../../lib/jsonLd'
+import { JsonLd } from '../components/JsonLd'
 import { SectionTheme, themeOf } from '../components/SectionTheme'
 
-type MediaDoc = { url?: string | null; alt?: string | null; width?: number | null; height?: number | null }
+type MediaDoc = {
+  url?: string | null
+  alt?: string | null
+  width?: number | null
+  height?: number | null
+  sizes?: { wide?: { url?: string | null } | null; card?: { url?: string | null } | null } | null
+}
 type GalleryItem = { id?: string | null; image?: MediaDoc | string | number | null }
 type VideoItem = { id?: string | null; title?: string | null; url?: string | null }
 type PostDoc = {
   title?: string | null
   date?: string | null
   publishedAt?: string | null
+  type?: string | null
   category?: string | null
   content?: unknown
   cover?: MediaDoc | string | number | null
@@ -32,6 +41,17 @@ function institutionTitleOf(institution: unknown): string | null {
   if (!institution || typeof institution !== 'object') return null
   const title = (institution as { title?: unknown }).title
   return typeof title === 'string' && title.trim() ? title : null
+}
+
+// Абсолютный адрес картинки записи для og:image и JSON-LD. Относительный не
+// годится: мессенджер и поисковик открывают разметку со своей стороны, и
+// «/media/x.jpg» для них — не наш домен. Берём `card` (768px) — это ровно тот
+// кадр, который уже грузится в ленте, и он не тянет original на 2 МБ.
+function absoluteImageUrl(cover: MediaDoc | null): string | null {
+  const url = cover?.sizes?.card?.url || cover?.url
+  if (!url) return null
+  if (/^https?:\/\//i.test(url)) return url
+  return canonicalOf(url)
 }
 
 // Видео записи: mp4 — нативный плеер, плеер ВК (video_ext.php) — кадр, прочее —
@@ -96,11 +116,24 @@ export async function postMeta(slug: string): Promise<Metadata> {
       title: post.title,
       institutionTitle: institutionTitleOf(post.institution),
     })
+    // og:image — кадр записи; у записи без фото остаётся общая обложка портала,
+    // иначе ссылка разворачивается пустой карточкой без картинки.
+    const imageUrl = absoluteImageUrl(
+      typeof post.cover === 'object' && post.cover ? (post.cover as MediaDoc) : null,
+    )
+    const ogImage = imageUrl ?? canonicalOf('/og.png')
     return {
       title: post.title || SITE_NAME,
       description,
       alternates: { canonical },
-      openGraph: { url: canonical, title, description, type: 'article' },
+      openGraph: {
+        url: canonical,
+        title,
+        description,
+        type: 'article',
+        images: [ogImage],
+      },
+      twitter: { card: 'summary_large_image' },
     }
   } catch {
     return {}
@@ -122,9 +155,39 @@ export async function PostView({ slug }: { slug: string }) {
 
   const videos = (post.videos ?? []).filter((v) => typeof v?.url === 'string' && v.url)
 
+  // Структурированные данные. Афиши (type: 'event') размечаются как Event —
+  // поисковик показывает их блоком событий с датой, а не строчкой новости.
+  const imageUrl = absoluteImageUrl(cover)
+  const description = postDescription({
+    text: lexicalText(post.content),
+    title: post.title,
+    institutionTitle: institutionTitleOf(post.institution),
+  })
+  const jsonLd =
+    post.type === 'event'
+      ? eventJsonLd({
+          slug,
+          title: post.title || '',
+          description,
+          date: post.date,
+          imageUrl,
+          institutionTitle: institutionTitleOf(post.institution),
+        })
+      : articleJsonLd({
+          slug,
+          title: post.title || '',
+          description,
+          date: post.date,
+          publishedAt: post.publishedAt,
+          imageUrl,
+          category: post.category,
+          institutionTitle: institutionTitleOf(post.institution),
+        })
+
   return (
     <SectionTheme theme={themeOf(post.institution)}>
     <article>
+      <JsonLd data={jsonLd} />
       <h1>{post.title}</h1>
       <p className="post-list__meta">
         {formatPostDate(post.date || post.publishedAt)}

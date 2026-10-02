@@ -9,6 +9,7 @@ import {
   CI_DRAFT_INSTITUTION_TITLE,
   CI_DRAFT_POST_SLUG,
   CI_DRAFT_POST_TITLE,
+  CI_EVENT_SLUG,
   CI_EVENT_TITLE,
   CI_INSTITUTION_SLUG,
   CI_INSTITUTION_TITLE_UPDATED,
@@ -190,6 +191,49 @@ test.describe('публичные страницы открываются в б�
     const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
     expect(canonical, 'нет canonical у кириллической новости').not.toBeNull()
     expect(decodeURIComponent(new URL(canonical as string).pathname)).toBe(`/news/${CI_CYRILLIC_POST_SLUG}`)
+  })
+
+  // Структурированная разметка — та же ловушка, что была у метаданных: если
+  // сборщик JSON-LD упадёт или его вызов уберут со страницы, глазами этого не
+  // увидеть (страница отрендерится нормально), а поисковик потеряет дату,
+  // дом культуры и обложку. Поэтому проверяем и наличие, и СОДЕРЖИМОСТЬ:
+  // валидный разбор плюс поля, которые есть только у правильного типа.
+  const readJsonLd = async (page: import('@playwright/test').Page) => {
+    const raw = await page.locator('script[type="application/ld+json"]').allTextContents()
+    return raw.map((text) => JSON.parse(text) as Record<string, unknown>)
+  }
+
+  test('новость размечена как NewsArticle, а афиша — как Event', async ({ page }) => {
+    await page.goto(`/news/${CI_CYRILLIC_POST_SLUG}`)
+    const blocks = await readJsonLd(page)
+
+    const article = blocks.find((b) => b['@type'] === 'NewsArticle')
+    expect(article, 'нет разметки NewsArticle у новости').toBeDefined()
+    expect(article?.headline).toBe(CI_CYRILLIC_POST_TITLE)
+    expect(article?.inLanguage).toBe('ru-RU')
+    expect(String(article?.datePublished ?? ''), 'дата публикации потерялась').not.toBe('')
+
+    // Портал обязан объявить себя один раз — из него живёт publisher новости.
+    expect(blocks.some((b) => b['@type'] === 'Organization' && b.name)).toBe(true)
+
+    await page.goto(`/news/${CI_EVENT_SLUG}`)
+    const eventBlocks = await readJsonLd(page)
+    const event = eventBlocks.find((b) => b['@type'] === 'Event')
+    expect(event, 'нет разметки Event у афиши').toBeDefined()
+    expect(String(event?.startDate ?? ''), 'у события нет даты начала').not.toBe('')
+  })
+
+  test('страницы отдают картинку для превью ссылки', async ({ page, request }) => {
+    await page.goto(`/news/${CI_CYRILLIC_POST_SLUG}`)
+    const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content')
+    expect(ogImage, 'нет og:image — ссылка развернётся без картинки').not.toBeNull()
+    // Обложка обязана быть АБСОЛЮТНОЙ и живой: относительный адрес мессенджер
+    // не откроет, а битый — покажет пустую карточку. Схему не требуем: в гейте
+    // база — http://127.0.0.1:3005, важно происхождение и доступность.
+    const imageUrl = new URL(ogImage as string)
+    expect(imageUrl.origin, 'og:image не абсолютный').toBe(new URL(page.url()).origin)
+    const res = await request.get(ogImage as string)
+    expect(res.status(), `картинка превью недоступна: ${ogImage}`).toBe(200)
   })
 
   // Негативные проверки. Позитивных мало: они одинаково зелены и когда фильтр

@@ -9,6 +9,8 @@ import { withRetry } from '../../../lib/withRetry'
 import { RichText } from '../../../lib/RichText'
 import { FEED_PAGE_SIZE, getFeedPageSafe, type FeedPage } from '../../../lib/feed'
 import { isMentionFeed, MENTION_FEED_NOTE } from '../../../lib/institutions/mentionFeed'
+import { institutionJsonLd } from '../../../lib/jsonLd'
+import { JsonLd } from '../components/JsonLd'
 import { SectionTheme, themeOf } from '../components/SectionTheme'
 import { PostFeed } from '../components/PostFeed'
 
@@ -99,6 +101,15 @@ export async function InstitutionView({ slug }: { slug: string }) {
   return (
     <SectionTheme theme={themeOf(institution)}>
     <article>
+      <JsonLd
+        data={institutionJsonLd({
+          slug: sectionSlug,
+          title: institution.title || '',
+          description: institution.description,
+          address: institution.address,
+          phone: institution.phone,
+        })}
+      />
       <p className="eyebrow eyebrow--crumbs">
         <Link href="/dk">Дома культуры района</Link>
         {institution.settlement ? ` · ${institution.settlement}` : ''}
