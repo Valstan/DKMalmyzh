@@ -188,7 +188,9 @@ test('дома культуры: картинка, короткое имя и п
     const total = await cards.count()
     expect(total, 'список учреждений пуст').toBeGreaterThan(0)
 
-    // Картинка у каждого, и это не пустая строка.
+    // Картинка у каждого, и это не пустая строка. Разные значки у разных
+    // учреждений проверяет юнит на настоящей карте (33 адреса — 33 разных);
+    // здесь, на выдуманных адресах тестовой базы, карта покрывать не обязана.
     const emojis = await page.locator('.dk-item__emoji').allTextContents()
     expect(emojis).toHaveLength(total)
     expect(emojis.every((e) => e.trim().length > 0), 'учреждение без картинки').toBe(true)
@@ -198,6 +200,15 @@ test('дома культуры: картинка, короткое имя и п
     // из тридцати одного пункта читала бы «Калинино» без всякого смысла).
     const firstCard = cards.first()
     await expect(firstCard.locator('.post-list__meta')).not.toContainText('Дом культуры')
+
+    // Компакт (заказ 03.10): поселения в подписях нет — имя села уже стоит в
+    // заголовке, строка «с. …» под ним была повтором. Проверяем все подписи
+    // разом: ни одна не начинается с префикса населённого пункта.
+    const metas = await page.locator('.post-list__meta').allTextContents()
+    expect(
+      metas.every((m) => !/^[сдп]\.\s|пгт\.\s/i.test(m.trim())),
+      `поселение в подписи: ${JSON.stringify(metas.filter((m) => /^[сдп]\.\s|пгт\.\s/i.test(m.trim())))}`,
+    ).toBe(true)
 
     const search = page.locator('.dk-search__input')
     await expect(search).toBeVisible()
