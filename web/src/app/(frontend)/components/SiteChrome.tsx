@@ -2,6 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import React from 'react'
 
+import { mergeNav } from '../../../lib/chrome/nav'
 import { SITE_NAME } from '../../../lib/site'
 import { MetrikaInformer } from './MetrikaInformer'
 
@@ -23,12 +24,10 @@ export function SiteChrome({
   children: React.ReactNode
 }) {
   const brand = chrome?.brand || SITE_NAME
-  const nav = chrome?.nav?.length
-    ? chrome.nav
-    : [
-        { label: 'Новости', href: '/news' },
-        { label: 'Дома культуры', href: '/dk' },
-      ]
+  // Обязательные пункты дописываются при отрисовке, а не только служебной
+  // операцией. Раньше кодовый запасной список срабатывал лишь на пустой шапке,
+  // и «Вопросы и ответы» могли лежать на сайте невидимыми месяцами.
+  const nav = mergeNav(chrome?.nav)
   const copyright = chrome?.copyright || `© ${new Date().getFullYear()} ${SITE_NAME}`
 
   return (

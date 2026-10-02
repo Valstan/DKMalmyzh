@@ -152,6 +152,27 @@ test.describe('публичные страницы открываются в б�
     })
   })
 
+  // Страница, до которой нельзя дойти по меню, не существует для посетителя.
+  // Такое уже случалось: «Вопросы и ответы» выкатили, в меню пункт не добавили,
+  // и страница лежала месяцами — её находили только те, кто угадал адрес.
+  // Проверка по ССЫЛКЕ в шапке, а не по наличию страницы по адресу.
+  test('обязательные пункты меню видны в шапке и ведут живые', async ({ page }) => {
+    await withoutPageErrors(page, async () => {
+      await page.goto('/')
+      const nav = page.locator('.site-nav')
+
+      for (const href of ['/news', '/dk', '/prazdniki', '/faq']) {
+        await expect(nav.locator(`a[href="${href}"]`), `нет пункта меню ${href}`).toHaveCount(1)
+      }
+
+      // И действительно ведёт: страница открывается и не пустая.
+      await nav.locator('a[href="/faq"]').click()
+      await expect(page).toHaveURL(/\/faq$/)
+      await expect(page.locator('h1')).toBeVisible()
+      await expect(page.locator('.faq-question').first()).toBeVisible()
+    })
+  })
+
   // Канонический адрес задаётся постранично. Пока он жил в корневом layout, ВСЕ
   // страницы объявляли канонической главную, и раздел выпадал из индекса при
   // живом sitemap — расхождение, которое снаружи ничем себя не выдаёт.
