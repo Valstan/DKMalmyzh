@@ -182,8 +182,14 @@ jobs:
 
           # -o в файл, а не в stdout: ответ печатаем сами, отдельной командой,
           # чтобы код возврата curl не потерялся в конвейере.
-          code=$(curl -sS -o /tmp/internal-op.json -w '%{http_code}' --max-time 3900 \
-                 -X POST -H "x-internal-secret: $SECRET" "$URL" || echo 000)
+          #
+          # Секрет — в конфигурации curl на stdin, а не в -H: на общем боксе
+          # /proc/<pid>/cmdline читает любой локальный пользователь, и в этом
+          # прогоне окно длинное (--max-time 3900). Тот же приём применён в
+          # deploy/dkmalmyzh-vk-sync-run.sh.
+          code=$(printf 'header = "x-internal-secret: %s"\n' "$SECRET" | \
+                 curl -sS -o /tmp/internal-op.json -w '%{http_code}' --config - \
+                 --max-time 3900 -X POST "$URL") || code=000
 
           echo "HTTP $code"
           # Секрет в ответе не фигурирует — печатать тело безопасно; каталог

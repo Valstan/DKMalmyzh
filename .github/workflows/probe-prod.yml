@@ -140,21 +140,26 @@ jobs:
           set -e
           DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
           [ -n "$DB" ] || { echo "::error::DATABASE_URI не прочитан"; exit 1; }
-          psql "$DB" -tAc "SELECT 'institutions: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||')' FROM institutions;"
-          psql "$DB" -tAc "SELECT 'posts: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||', from vk '||count(*) FILTER (WHERE source='vk')||')' FROM posts;"
-          psql "$DB" -tAc "SELECT 'media: '||count(*) FROM media;"
+          # Пароль не в аргументах psql: /proc читает любой локальный пользователь
+          # общей машины. Ниже девять обращений подряд, так что окно не «секунда».
+          # Строка целиком — во временный файл прав 600, psql получает имя сервиса.
+          PGSVC=$(mktemp); trap 'rm -f "$PGSVC"' EXIT; umask 077
+          printf '[prod]\ndbname=%s\n' "$DB" > "$PGSVC"; export PGSERVICEFILE="$PGSVC"
+          psql service=prod -tAc "SELECT 'institutions: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||')' FROM institutions;"
+          psql service=prod -tAc "SELECT 'posts: '||count(*)||' (published '||count(*) FILTER (WHERE _status='published')||', from vk '||count(*) FILTER (WHERE source='vk')||')' FROM posts;"
+          psql service=prod -tAc "SELECT 'media: '||count(*) FROM media;"
           # G388: Payload ≥ 3.90 требует колонку у auth-коллекции даже без forgotPassword.
-          psql "$DB" -tAc "SELECT 'users.reset_password_requested_at: '||CASE WHEN count(*)>0 THEN 'на месте ('||min(data_type)||')' ELSE 'НЕТ' END FROM information_schema.columns WHERE table_name='users' AND column_name='reset_password_requested_at';"
+          psql service=prod -tAc "SELECT 'users.reset_password_requested_at: '||CASE WHEN count(*)>0 THEN 'на месте ('||min(data_type)||')' ELSE 'НЕТ' END FROM information_schema.columns WHERE table_name='users' AND column_name='reset_password_requested_at';"
           # Дубли адресов: slug в схеме не уникален, а страница записи ищет по нему
           # первый попавшийся документ — при совпадении остальные недоступны при
           # живых ссылках из ленты. Импорт до 04.09 брал slug из заголовка, а
           # заголовки записей из ВК повторяются по построению.
-          psql "$DB" -tAc "SELECT 'дубли slug у записей: '||coalesce(count(*)::text,'0') FROM (SELECT slug FROM posts WHERE slug IS NOT NULL GROUP BY slug HAVING count(*) > 1) d;"
-          psql "$DB" -tAc "SELECT 'записей под дублирующимися адресами: '||coalesce(sum(c)::text,'0') FROM (SELECT count(*) c FROM posts WHERE slug IS NOT NULL GROUP BY slug HAVING count(*) > 1) d;"
-          psql "$DB" -tAc "SELECT 'vk sources resolved: '||count(*) FILTER (WHERE owner_id IS NOT NULL)||' / '||count(*) FROM institutions_vk_sources;"
+          psql service=prod -tAc "SELECT 'дубли slug у записей: '||coalesce(count(*)::text,'0') FROM (SELECT slug FROM posts WHERE slug IS NOT NULL GROUP BY slug HAVING count(*) > 1) d;"
+          psql service=prod -tAc "SELECT 'записей под дублирующимися адресами: '||coalesce(sum(c)::text,'0') FROM (SELECT count(*) c FROM posts WHERE slug IS NOT NULL GROUP BY slug HAVING count(*) > 1) d;"
+          psql service=prod -tAc "SELECT 'vk sources resolved: '||count(*) FILTER (WHERE owner_id IS NOT NULL)||' / '||count(*) FROM institutions_vk_sources;"
           # coalesce на обоих уровнях: конкатенация с NULL даёт NULL, а string_agg
           # молча пропускает NULL-элементы. Учреждение без slug (заголовок ещё не
           # заполнен) исчезало бы из разбивки, и сумма по списку не сходилась бы с
           # общим счётчиком — читается как «импорт до него не дошёл».
-          psql "$DB" -tAc "SELECT 'posts by institution: '||coalesce(string_agg(coalesce(i.slug,'id'||i.id)||'='||c, ', ' ORDER BY c DESC), 'нет записей') FROM (SELECT institution_id, count(*) c FROM posts WHERE institution_id IS NOT NULL GROUP BY institution_id) p JOIN institutions i ON i.id=p.institution_id;"
+          psql service=prod -tAc "SELECT 'posts by institution: '||coalesce(string_agg(coalesce(i.slug,'id'||i.id)||'='||c, ', ' ORDER BY c DESC), 'нет записей') FROM (SELECT institution_id, count(*) c FROM posts WHERE institution_id IS NOT NULL GROUP BY institution_id) p JOIN institutions i ON i.id=p.institution_id;"
           REMOTE

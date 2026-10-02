@@ -123,7 +123,16 @@ jobs:
             sudo rm -f /etc/nginx/sites-enabled/dkmalmyzh
             echo "старый vhost дкмалмыж.рф отключён (бэкап: ~/dkmalmyzh/retired/vhost-dkmalmyzh.bak)"
           fi
-          sudo nginx -t
+          # nginx -t печатает в служебные строки пути файлов ВСЕХ включённых vhost,
+          # включая соседские, а лог прогона публичный (D-038). Код возврата берём
+          # у самой проверки, а не у пайпа: успешный sed съел бы ошибку и сломанный
+          # vhost прошёл бы как «проверен».
+          NGX_RC=0
+          NGX_OUT=$(sudo nginx -t 2>&1) || NGX_RC=$?
+          printf '%s\n' "$NGX_OUT" | sed -E \
+            -e 's#(/etc/nginx/(sites-enabled|sites-available|conf\.d|snippets)/)[A-Za-z0-9_.-]+#\1<vhost>#g' \
+            -e 's#/etc/letsencrypt/live/[^/ :]+#<cert>#g'
+          [ "$NGX_RC" -eq 0 ] || exit "$NGX_RC"
           sudo systemctl reload nginx
           echo "nginx перечитан"
           REMOTE

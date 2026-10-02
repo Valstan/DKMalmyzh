@@ -13,7 +13,10 @@
 # 3. Приложение может ещё подниматься (после ребута или деплоя). Отказ соединения
 #    лечится ожиданием, а не тревогой, поэтому есть короткий ретрай.
 #
-# Секрет читается из окружения юнита (EnvironmentFile), в аргументы не попадает.
+# Секрет НЕ должен попадать в аргументы процесса. На общем боксе список
+# процессов читает любой локальный пользователь, а `-H "…: $SECRET"` кладёт
+# секрет ровно туда. Поэтому заголовок не аргумент, а stdin конфигурации curl:
+# в /proc/<pid>/cmdline в этом случае видно только `--config -`.
 
 set -uo pipefail
 
@@ -28,9 +31,11 @@ fi
 
 # --retry-connrefused: после ребута таймер может сработать раньше, чем приложение
 # начнёт слушать порт. Это ожидание, а не отказ.
-code=$(curl --silent --show-error --output "$BODY" --write-out '%{http_code}' \
-  --max-time 1500 --retry 3 --retry-delay 10 --retry-connrefused \
-  -X POST -H "x-internal-secret: ${INTERNAL_OPS_SECRET}" "$URL") || code="000"
+code=$(printf 'header = "x-internal-secret: %s"\n' "${INTERNAL_OPS_SECRET}" | \
+  curl --silent --show-error --output "$BODY" --write-out '%{http_code}' \
+    --config - \
+    --max-time 1500 --retry 3 --retry-delay 10 --retry-connrefused \
+    -X POST "$URL") || code="000"
 
 echo "POST /internal/vk-sync -> HTTP $code"
 head -c 2000 "$BODY"

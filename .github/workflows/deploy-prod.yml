@@ -102,7 +102,21 @@ jobs:
           set -e
           DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
           [ -n "$DB" ] || exit 3
-          psql "$DB" -tAc "SELECT name FROM payload_migrations ORDER BY name;"
+          # Строка подключения с паролем НЕ идёт аргументом psql: /proc читает
+          # любой локальный пользователь общей машины, а пароль в env-файле
+          # защищён правами 640 именно тем, что сосед его не взял.
+          #
+          # Разбором строки на PGHOST/PGPASSWORD НЕ занимаемся сознательно:
+          # psql сам понимает процентное кодирование пароля, а любая наша
+          # нарезка — нет, и ошибка здесь уехала бы в миграцию на проде. Вместо
+          # этого psql получает имя СЕРВИСА, а строка целиком лежит во временном
+          # файле прав 600, который удаляется на выходе.
+          PGSVC=$(mktemp)
+          trap 'rm -f "$PGSVC"' EXIT
+          umask 077
+          printf '[prod]\ndbname=%s\n' "$DB" > "$PGSVC"
+          export PGSERVICEFILE="$PGSVC"
+          psql service=prod -tAc "SELECT name FROM payload_migrations ORDER BY name;"
           REMOTE
           )
           RC=$?
@@ -184,7 +198,9 @@ jobs:
           set -e
           DB=$(sudo grep '^DATABASE_URI=' /etc/dkmalmyzh/dkmalmyzh.env | head -1 | sed 's/^DATABASE_URI=//;s/^"//;s/"$//')
           [ -n "$DB" ] || exit 3
-          psql "$DB" -tAc "SELECT column_name FROM information_schema.columns WHERE table_name = 'payload_locked_documents_rels' ORDER BY column_name;"
+          PGSVC=$(mktemp); trap 'rm -f "$PGSVC"' EXIT; umask 077
+          printf '[prod]\ndbname=%s\n' "$DB" > "$PGSVC"; export PGSERVICEFILE="$PGSVC"
+          psql service=prod -tAc "SELECT column_name FROM information_schema.columns WHERE table_name = 'payload_locked_documents_rels' ORDER BY column_name;"
           REMOTE
           )
           [ -n "$LOCKED_COLS" ] || { echo "::error::не прочитали колонки payload_locked_documents_rels на проде — «не смогли проверить» это не «всё в порядке»"; exit 1; }
@@ -722,7 +738,20 @@ jobs:
           else
             sudo cp /tmp/nginx-dkmalmyzh.conf "$DEST"
             if [ -n "$ENABLE" ]; then sudo ln -sfn "$DEST" "$ENABLE"; fi
-            sudo nginx -t
+            # nginx -t печатает в служебные строки пути файлов ВСЕХ включённых
+            # vhost, включая соседские, а лог прогона публичный (D-038). Фильтр
+            # тот же, что в switch-kalinino-domain.yml.
+            #
+            # Вывод печатается ОТФИЛЬТРОВАННЫМ даже при успехе (там есть
+            # безобидные предупреждения, их полезно видеть), а код возврата берём
+            # у самой проверки: если бы он пришёл из пайпа, успешный sed съел бы
+            # ошибку и сломанный vhost прошёл бы как «проверен».
+            NGX_RC=0
+            NGX_OUT=$(sudo nginx -t 2>&1) || NGX_RC=$?
+            printf '%s\n' "$NGX_OUT" | sed -E \
+              -e 's#(/etc/nginx/(sites-enabled|sites-available|conf\.d|snippets)/)[A-Za-z0-9_.-]+#\1<vhost>#g' \
+              -e 's#/etc/letsencrypt/live/[^/ :]+#<cert>#g'
+            [ "$NGX_RC" -eq 0 ] || exit "$NGX_RC"
             sudo systemctl reload nginx
             echo "vhost обновлён, nginx перечитан"
           fi

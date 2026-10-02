@@ -93,9 +93,16 @@ jobs:
         run: |
           case "$MODE" in check|switch|restore) ;; *) echo "::error::неизвестный режим"; exit 1 ;; esac
           # Имена соседних vhost (состав бокса) в лог не попадают (D-038): nginx -t
-          # печатает предупреждения с путями sites-enabled/<сосед>.
+          # печатает предупреждения с путями соседских vhost. Каталогов больше
+          # одного: sites-enabled — куда мы кладём симлинк, но Debian-nginx по
+          # умолчанию тянет ещё и conf.d, а пути сертификатов приходят как
+          # /etc/letsencrypt/live/<домен соседа>/. Одного каталога в фильтре
+          # мало — именно это нашёл аудит #057.
           redact() {
-            sed -E -e "s#${DEPLOY_SSH_HOST}#<host>#g" -e 's#/home/[^/[:space:]]+#~#g'                    -e 's#sites-enabled/[A-Za-z0-9_.-]+#sites-enabled/<vhost>#g'
+            sed -E -e "s#${DEPLOY_SSH_HOST}#<host>#g" \
+                   -e 's#/home/[^/[:space:]]+#~#g' \
+                   -e 's#(/etc/nginx/(sites-enabled|sites-available|conf\.d|snippets)/)[A-Za-z0-9_.-]+#\1<vhost>#g' \
+                   -e 's#/etc/letsencrypt/live/[^/ :]+#<cert>#g'
           }
           ssh dkmalmyzh "MODE='$MODE' DOMAIN='$DOMAIN' LEGACY='$LEGACY_DOMAIN' KAL='$KALININO_DOMAIN' bash -s" 2>&1 <<'REMOTE' | redact
           set -euo pipefail
