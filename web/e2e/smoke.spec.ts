@@ -224,16 +224,22 @@ test.describe('публичные страницы открываются в б�
   })
 
   test('страницы отдают картинку для превью ссылки', async ({ page, request }) => {
-    await page.goto(`/news/${CI_CYRILLIC_POST_SLUG}`)
-    const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content')
-    expect(ogImage, 'нет og:image — ссылка развернётся без картинки').not.toBeNull()
-    // Обложка обязана быть АБСОЛЮТНОЙ и живой: относительный адрес мессенджер
-    // не откроет, а битый — покажет пустую карточку. Схему не требуем: в гейте
-    // база — http://127.0.0.1:3005, важно происхождение и доступность.
-    const imageUrl = new URL(ogImage as string)
-    expect(imageUrl.origin, 'og:image не абсолютный').toBe(new URL(page.url()).origin)
-    const res = await request.get(ogImage as string)
-    expect(res.status(), `картинка превью недоступна: ${ogImage}`).toBe(200)
+    // Все публичные страницы, а не только новость: обложка задаётся постранично,
+    // и забыть её на разделе — ровно та ошибка, что нашлась приёмкой #123
+    // (og:image был только у новостей). Проверяем и главную, и списки, и раздел.
+    for (const path of ['/', '/news', '/dk', '/prazdniki', '/dk/ci-dk', `/news/${CI_CYRILLIC_POST_SLUG}`]) {
+      await page.goto(path)
+      const ogImage = await page.locator('meta[property="og:image"]').getAttribute('content')
+      expect(ogImage, `нет og:image на ${path} — ссылка развернётся без картинки`).not.toBeNull()
+
+      // Абсолютность: относительный адрес мессенджер не откроет. Схему не
+      // требуем — в гейте база http://127.0.0.1:3005.
+      const url = new URL(ogImage as string)
+      expect(url.origin, `og:image не абсолютный на ${path}`).toBe(new URL(page.url()).origin)
+
+      const res = await request.get(ogImage as string)
+      expect(res.status(), `картинка превью недоступна на ${path}: ${ogImage}`).toBe(200)
+    }
   })
 
   // Негативные проверки. Позитивных мало: они одинаково зелены и когда фильтр

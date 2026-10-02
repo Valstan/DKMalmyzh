@@ -37,3 +37,32 @@ export function canonicalOf(path: string): string {
     .join('/')
   return `${SITE_URL}${encoded === '/' ? '/' : encoded}`
 }
+
+/**
+ * Общая обложка портала для превью ссылок (og:image, twitter:image).
+ *
+ * Задаётся ПОСТРАНИЧНО, как и canonical, и по той же причине: `openGraph` —
+ * это объект, и дочерняя страница объявляет его целиком. Ключ `images`,
+ * положенный в корневой layout, до страницы со своим `openGraph` НЕ доезжает —
+ * родительские значения по вложенным объектам не подставляются. Первый заход
+ * положил обложку только в layout, и og:image оказался лишь у новостей: у
+ * главной, каталога и разделов его не было (приёмка #123 на проде).
+ *
+ * Поэтому страница, знающая свой путь, объявляет оба: canonical и обложку.
+ */
+export function openGraphWithImage(input: {
+  path: string
+  title?: string
+  description?: string | null
+  type?: 'website' | 'article'
+  images?: string[]
+}) {
+  const url = canonicalOf(input.path)
+  return {
+    url,
+    ...(input.title ? { title: input.title } : {}),
+    ...(input.description ? { description: input.description } : {}),
+    ...(input.type ? { type: input.type } : {}),
+    images: input.images ?? [canonicalOf('/og.png')],
+  }
+}
