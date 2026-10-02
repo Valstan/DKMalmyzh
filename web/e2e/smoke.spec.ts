@@ -173,7 +173,50 @@ test.describe('публичные страницы открываются в б�
     })
   })
 
-  // Канонический адрес задаётся постранично. Пока он жил в корневом layout, ВСЕ
+  // Список домов культуры: заказчик просил три вещи — картинку у каждого учреждения,
+// короткое имя вместо родительного падежа и поиск по совпадению в любом месте
+// названия. Проверяется всё поведением, а не разметкой: тест, прибитый к
+// конкретному селу, сломается вместе с любым переименованием.
+test('дома культуры: картинка, короткое имя и поиск по совпадению', async ({ page }) => {
+  await withoutPageErrors(page, async () => {
+    await page.goto('/dk')
+
+    const cards = page.locator('.dk-item')
+    const total = await cards.count()
+    expect(total, 'список учреждений пуст').toBeGreaterThan(1)
+
+    // Картинка у каждого, и это не пустая строка.
+    const emojis = await page.locator('.dk-item__emoji').allTextContents()
+    expect(emojis).toHaveLength(total)
+    expect(emojis.every((e) => e.trim().length > 0), 'учреждение без картинки').toBe(true)
+
+    // Короткое имя: у карточки есть предписанное название и населённый пункт, и
+    // подпись не повторяет «Дом культуры …» — ради этого правила и затевалось.
+    const firstCard = cards.first()
+    await expect(firstCard.locator('.post-list__meta')).not.toContainText('Дом культуры')
+
+    // Поиск: совпадение НЕ в начале названия, а в середине.
+    const search = page.locator('.dk-search__input')
+    await expect(search).toBeVisible()
+    await search.fill('китяк')
+    const found = await cards.count()
+    expect(found, 'поиск ничего не нашёл').toBeGreaterThan(0)
+    expect(found, 'поиск ничего не отфильтровал').toBeLessThan(total)
+    await expect(page.locator('.dk-item__title')).toContainText(/Китяк/i)
+    await expect(page.locator('.dk-search__status')).toContainText(`из ${total}`)
+
+    // Список пересобирается на том же адресе, без перезагрузки.
+    await search.fill('совершенно-нет-такого')
+    await expect(page.locator('.muted').filter({ hasText: 'ничего не нашлось' })).toBeVisible()
+    expect(await cards.count()).toBe(0)
+
+    // И очистка запроса возвращает полный список.
+    await search.fill('')
+    await expect(cards).toHaveCount(total)
+  })
+})
+
+// Канонический адрес задаётся постранично. Пока он жил в корневом layout, ВСЕ
   // страницы объявляли канонической главную, и раздел выпадал из индекса при
   // живом sitemap — расхождение, которое снаружи ничем себя не выдаёт.
   //
