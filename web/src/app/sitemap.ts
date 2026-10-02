@@ -26,6 +26,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${baseUrl}/news`, changeFrequency: 'daily', priority: 0.8 },
     { url: `${baseUrl}/dk`, changeFrequency: 'weekly', priority: 0.8 },
     { url: `${baseUrl}/prazdniki`, changeFrequency: 'monthly', priority: 0.6 },
+    { url: `${baseUrl}/faq`, changeFrequency: 'monthly', priority: 0.5 },
+    { url: `${baseUrl}/privacy`, changeFrequency: 'yearly', priority: 0.3 },
   ]
 
   let payload: Awaited<ReturnType<typeof getPayload>>
